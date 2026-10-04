@@ -6,12 +6,14 @@ using NLog;
 using NzbDrone.Common.EnvironmentInfo;
 using NzbDrone.Common.Extensions;
 using NzbDrone.Common.Instrumentation.Extensions;
+using NzbDrone.Core.Configuration;
 using NzbDrone.Core.Download.TrackedDownloads;
 using NzbDrone.Core.History;
 using NzbDrone.Core.MediaFiles;
 using NzbDrone.Core.MediaFiles.MovieImport;
 using NzbDrone.Core.Messaging.Events;
 using NzbDrone.Core.Movies;
+using NzbDrone.Core.Movies.Translations;
 using NzbDrone.Core.Parser;
 using NzbDrone.Core.Parser.Model;
 
@@ -34,6 +36,8 @@ namespace NzbDrone.Core.Download
         private readonly IMovieService _movieService;
         private readonly ITrackedDownloadAlreadyImported _trackedDownloadAlreadyImported;
         private readonly IRejectedImportService _rejectedImportService;
+        private readonly IConfigService _configService;
+        private readonly IMovieTranslationService _movieTranslationService;
         private readonly Logger _logger;
 
         public CompletedDownloadService(IEventAggregator eventAggregator,
@@ -44,6 +48,8 @@ namespace NzbDrone.Core.Download
                                         IMovieService movieService,
                                         ITrackedDownloadAlreadyImported trackedDownloadAlreadyImported,
                                         IRejectedImportService rejectedImportService,
+                                        IConfigService configService,
+                                        IMovieTranslationService movieTranslationService,
                                         Logger logger)
         {
             _eventAggregator = eventAggregator;
@@ -54,6 +60,8 @@ namespace NzbDrone.Core.Download
             _movieService = movieService;
             _trackedDownloadAlreadyImported = trackedDownloadAlreadyImported;
             _rejectedImportService = rejectedImportService;
+            _configService = configService;
+            _movieTranslationService = movieTranslationService;
             _logger = logger;
         }
 
@@ -107,7 +115,7 @@ namespace NzbDrone.Core.Download
                 Enum.TryParse(historyItem.Data.GetValueOrDefault(MovieHistory.RELEASE_SOURCE, ReleaseSourceType.Unknown.ToString()), out ReleaseSourceType releaseSource);
 
                 // Show a warning if the release was matched by ID and the source is not interactive search
-                if (movieMatchType == MovieMatchType.Id && releaseSource != ReleaseSourceType.InteractiveSearch)
+                if (movieMatchType == MovieMatchType.Id && releaseSource != ReleaseSourceType.InteractiveSearch && !IsSimilarTitle(trackedDownload, movie))
                 {
                     trackedDownload.Warn("Found matching movie via grab history, but release was matched to movie by ID. Manual Import required.");
                     SetStateToImportBlocked(trackedDownload);
@@ -117,6 +125,70 @@ namespace NzbDrone.Core.Download
             }
 
             trackedDownload.State = TrackedDownloadState.ImportPending;
+        }
+
+        private bool IsSimilarTitle(TrackedDownload trackedDownload, Movie movie)
+        {
+            var minimumSimilarity = _configService.MinimumTitleSimilarity;
+
+            if (minimumSimilarity <= 0)
+            {
+                return false;
+            }
+
+            var parsedMovieInfo = Parser.Parser.ParseMovieTitle(trackedDownload.DownloadItem.Title);
+
+            var metadata = movie.MovieMetadata.Value;
+
+            // Remakes share their title, so a missing or clearly off year rules out the match
+            if (parsedMovieInfo == null || parsedMovieInfo.Year <= 0 ||
+                (Math.Abs(parsedMovieInfo.Year - metadata.Year) > 1 &&
+                 (!metadata.SecondaryYear.HasValue || Math.Abs(parsedMovieInfo.Year - metadata.SecondaryYear.Value) > 1)))
+            {
+                return false;
+            }
+
+            var movieTitles = new[] { metadata.Title, metadata.OriginalTitle }
+                .Concat(metadata.AlternativeTitles.Select(t => t.Title))
+                .Concat(_movieTranslationService.GetAllTranslationsForMovieMetadata(movie.MovieMetadataId).Select(t => t.Title))
+                .Where(t => t.IsNotNullOrWhiteSpace())
+                .ToList();
+
+            var best = parsedMovieInfo.MovieTitles
+                .SelectMany(parsedTitle => movieTitles.Select(movieTitle => (ParsedTitle: parsedTitle, MovieTitle: movieTitle, Similarity: TitleSimilarity(parsedTitle, movieTitle))))
+                .MaxBy(m => m.Similarity);
+
+            if (best.Similarity < minimumSimilarity)
+            {
+                return false;
+            }
+
+            _logger.Info("Release '{0}' was matched to movie by ID, accepting it for import as '{1}' is {2:0}% similar to '{3}' ({4})", trackedDownload.DownloadItem.Title, best.ParsedTitle, best.Similarity, best.MovieTitle, movie.Year);
+
+            return true;
+        }
+
+        // Dice coefficient over distinct words weighted by word length: independent of word order,
+        // relative to the length of both titles and short words like "of" weigh little
+        private static double TitleSimilarity(string first, string second)
+        {
+            var firstWords = TitleWords(first);
+            var secondWords = TitleWords(second);
+            var totalLength = firstWords.Sum(w => w.Length) + secondWords.Sum(w => w.Length);
+
+            if (totalLength == 0)
+            {
+                return 0;
+            }
+
+            return 200.0 * firstWords.Intersect(secondWords).Sum(w => w.Length) / totalLength;
+        }
+
+        private static HashSet<string> TitleWords(string title)
+        {
+            return Parser.Parser.NormalizeTitle(title.Replace("&", " and ").Replace('-', ' ')).RemoveAccent()
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .ToHashSet();
         }
 
         public void Import(TrackedDownload trackedDownload)

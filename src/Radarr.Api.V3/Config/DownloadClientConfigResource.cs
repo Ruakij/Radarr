@@ -9,6 +9,7 @@ namespace Radarr.Api.V3.Config
 
         public bool EnableCompletedDownloadHandling { get; set; }
         public int CheckForFinishedDownloadInterval { get; set; }
+        public int MinimumTitleSimilarity { get; set; }
 
         public bool AutoRedownloadFailed { get; set; }
         public bool AutoRedownloadFailedFromInteractiveSearch { get; set; }
@@ -24,6 +25,7 @@ namespace Radarr.Api.V3.Config
 
                 EnableCompletedDownloadHandling = model.EnableCompletedDownloadHandling,
                 CheckForFinishedDownloadInterval = model.CheckForFinishedDownloadInterval,
+                MinimumTitleSimilarity = model.MinimumTitleSimilarity,
 
                 AutoRedownloadFailed = model.AutoRedownloadFailed,
                 AutoRedownloadFailedFromInteractiveSearch = model.AutoRedownloadFailedFromInteractiveSearch
