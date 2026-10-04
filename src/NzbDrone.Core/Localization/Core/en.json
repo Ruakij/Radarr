@@ -1097,6 +1097,8 @@
   "MinimumFreeSpace": "Minimum Free Space",
   "MinimumFreeSpaceHelpText": "Prevent import if it would leave less than this amount of disk space available",
   "MinimumLimits": "Minimum Limits",
+  "MinimumTitleSimilarity": "Minimum Title Similarity",
+  "MinimumTitleSimilarityHelpText": "Automatically import releases matched to a movie by ID when their title is at least this similar to the movie or one of its alternative titles and the year is within one year. Values below 80 are permissive and risk importing the wrong movie. 0 to disable",
   "Minutes": "Minutes",
   "MinutesHundredTwenty": "120 Minutes: {hundredTwenty}",
   "MinutesNinety": "90 Minutes: {ninety}",
