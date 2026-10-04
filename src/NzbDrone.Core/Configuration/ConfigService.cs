@@ -231,6 +231,13 @@ namespace NzbDrone.Core.Configuration
             set { SetValue("CheckForFinishedDownloadInterval", value); }
         }
 
+        public int MinimumTitleSimilarity
+        {
+            get { return GetValueInt("MinimumTitleSimilarity", 0); }
+
+            set { SetValue("MinimumTitleSimilarity", value); }
+        }
+
         public int DownloadClientHistoryLimit
         {
             get { return GetValueInt("DownloadClientHistoryLimit", 60); }

@@ -4,12 +4,15 @@ using FluentAssertions;
 using Moq;
 using NUnit.Framework;
 using NzbDrone.Common.Disk;
+using NzbDrone.Core.Configuration;
 using NzbDrone.Core.Download;
 using NzbDrone.Core.Download.TrackedDownloads;
 using NzbDrone.Core.History;
 using NzbDrone.Core.MediaFiles;
 using NzbDrone.Core.MediaFiles.MovieImport;
 using NzbDrone.Core.Movies;
+using NzbDrone.Core.Movies.AlternativeTitles;
+using NzbDrone.Core.Movies.Translations;
 using NzbDrone.Core.Parser;
 using NzbDrone.Core.Parser.Model;
 using NzbDrone.Core.Test.Framework;
@@ -100,6 +103,138 @@ namespace NzbDrone.Core.Test.Download.CompletedDownloadServiceTests
             Mocker.GetMock<IParsingService>()
                   .Setup(s => s.GetMovie("Droned S01E01"))
                   .Returns(BuildRemoteMovie().Movie);
+        }
+
+        private void GivenGrabbedByIdMatch(string releaseTitle, string title, int year, string alternativeTitle = null, string translation = null, int? secondaryYear = null, MovieMatchType matchType = MovieMatchType.Id, ReleaseSourceType releaseSource = ReleaseSourceType.Search)
+        {
+            var movie = new Movie { Id = 10, MovieMetadataId = 20 };
+            movie.MovieMetadata.Value.Title = title;
+            movie.MovieMetadata.Value.Year = year;
+            movie.MovieMetadata.Value.SecondaryYear = secondaryYear;
+
+            if (alternativeTitle != null)
+            {
+                movie.MovieMetadata.Value.AlternativeTitles.Add(new AlternativeTitle(alternativeTitle));
+            }
+
+            Mocker.GetMock<IMovieTranslationService>()
+                  .Setup(s => s.GetAllTranslationsForMovieMetadata(movie.MovieMetadataId))
+                  .Returns(translation == null ? new List<MovieTranslation>() : new List<MovieTranslation> { new MovieTranslation { Title = translation } });
+
+            _trackedDownload.DownloadItem.DownloadId = "1234";
+            _trackedDownload.DownloadItem.Title = releaseTitle;
+
+            var history = new MovieHistory { MovieId = movie.Id, SourceTitle = releaseTitle, EventType = MovieHistoryEventType.Grabbed };
+            history.Data[MovieHistory.MOVIE_MATCH_TYPE] = matchType.ToString();
+            history.Data[MovieHistory.RELEASE_SOURCE] = releaseSource.ToString();
+
+            Mocker.GetMock<IHistoryService>()
+                  .Setup(s => s.FindByDownloadId("1234"))
+                  .Returns(new List<MovieHistory> { history });
+
+            Mocker.GetMock<IParsingService>()
+                  .Setup(s => s.GetMovie(It.IsAny<string>()))
+                  .Returns((Movie)null);
+
+            Mocker.GetMock<IMovieService>()
+                  .Setup(s => s.GetMovie(movie.Id))
+                  .Returns(movie);
+        }
+
+        private void GivenMinimumTitleSimilarity(int minimumTitleSimilarity)
+        {
+            Mocker.GetMock<IConfigService>()
+                  .SetupGet(s => s.MinimumTitleSimilarity)
+                  .Returns(minimumTitleSimilarity);
+        }
+
+        [Test]
+        public void should_not_process_id_matched_release_when_minimum_title_similarity_is_disabled()
+        {
+            GivenGrabbedByIdMatch("Dead.Poets.Society.1989.1080p.BluRay.x264-GRP", "Dead Poets Society", 1989);
+
+            Subject.Check(_trackedDownload);
+
+            AssertNotReadyToImport();
+        }
+
+        [TestCase("Dead.Poets.Society.1989.1080p.BluRay.x264-GRP", "Dead Poets Society", 1989, null, null)]
+        [TestCase("Ziemlich.beste.Freunde.2011.German.1080p.BluRay.x264-GRP", "The Intouchables", 2011, null, "Ziemlich beste Freunde")]
+        [TestCase("Sen.to.Chihiro.no.Kamikakushi.2001.JAPANESE.1080p.BluRay.x264-GRP", "Spirited Away", 2001, "Sen to Chihiro no Kamikakushi", null)]
+        [TestCase("Mission.Impossible.2023.1080p.WEB-DL.DDP5.1.H.264-GRP", "Mission: Impossible - Dead Reckoning Part One", 2023, null, null)]
+        [TestCase("Dead.Poets.Society.1990.1080p.BluRay.x264-GRP", "Dead Poets Society", 1989, null, null)]
+        [TestCase("Fast.and.Furious.2009.1080p.BluRay.x264-GRP", "Fast & Furious", 2009, null, null)]
+        [TestCase("Spider.Man.2002.1080p.BluRay.x264-GRP", "Spider-Man", 2002, null, null)]
+        [TestCase("X.Men.2000.1080p.BluRay.x264-GRP", "X-Men", 2000, null, null)]
+        public void should_process_id_matched_release_with_similar_title(string releaseTitle, string title, int year, string alternativeTitle, string translation)
+        {
+            GivenMinimumTitleSimilarity(60);
+            GivenGrabbedByIdMatch(releaseTitle, title, year, alternativeTitle, translation);
+
+            Subject.Check(_trackedDownload);
+
+            AssertReadyToImport();
+        }
+
+        [TestCase("Night.of.the.Living.Dead.1968.1080p.BluRay.x264-GRP", "Night of the Living Dead", 1990)]
+        [TestCase("It.2009.1080p.BluRay.x264-GRP", "Up", 2009)]
+        public void should_not_process_id_matched_release_with_dissimilar_title_or_year(string releaseTitle, string title, int year)
+        {
+            GivenMinimumTitleSimilarity(60);
+            GivenGrabbedByIdMatch(releaseTitle, title, year);
+
+            Subject.Check(_trackedDownload);
+
+            AssertNotReadyToImport();
+        }
+
+        [Test]
+        public void should_process_id_matched_release_with_year_matching_secondary_year()
+        {
+            GivenMinimumTitleSimilarity(60);
+            GivenGrabbedByIdMatch("Dead.Poets.Society.1995.1080p.BluRay.x264-GRP", "Dead Poets Society", 1989, secondaryYear: 1994);
+
+            Subject.Check(_trackedDownload);
+
+            AssertReadyToImport();
+        }
+
+        [Test]
+        public void should_not_process_id_matched_release_without_year()
+        {
+            GivenMinimumTitleSimilarity(60);
+            GivenGrabbedByIdMatch("Dead.Poets.Society.1080p.BluRay.x264-GRP", "Dead Poets Society", 1989);
+
+            Subject.Check(_trackedDownload);
+
+            AssertNotReadyToImport();
+        }
+
+        // "Dead Poets" vs "Dead Poets Society" is exactly 72% similar
+        [TestCase(72, true)]
+        [TestCase(73, false)]
+        public void should_compare_title_similarity_against_minimum_inclusively(int minimumTitleSimilarity, bool expectedImport)
+        {
+            GivenMinimumTitleSimilarity(minimumTitleSimilarity);
+            GivenGrabbedByIdMatch("Dead.Poets.1989.1080p.BluRay.x264-GRP", "Dead Poets Society", 1989);
+
+            Subject.Check(_trackedDownload);
+
+            _trackedDownload.State.Should().Be(expectedImport ? TrackedDownloadState.ImportPending : TrackedDownloadState.ImportBlocked);
+        }
+
+        [TestCase(MovieMatchType.Id, ReleaseSourceType.InteractiveSearch)]
+        [TestCase(MovieMatchType.Title, ReleaseSourceType.Search)]
+        public void should_process_release_not_matched_by_id_or_grabbed_interactively_without_title_similarity_check(MovieMatchType matchType, ReleaseSourceType releaseSource)
+        {
+            GivenMinimumTitleSimilarity(60);
+            GivenGrabbedByIdMatch("It.2009.1080p.BluRay.x264-GRP", "Up", 2009, matchType: matchType, releaseSource: releaseSource);
+
+            Subject.Check(_trackedDownload);
+
+            AssertReadyToImport();
+            Mocker.GetMock<IMovieTranslationService>()
+                  .Verify(s => s.GetAllTranslationsForMovieMetadata(It.IsAny<int>()), Times.Never());
         }
 
         [TestCase(DownloadItemStatus.Downloading)]
