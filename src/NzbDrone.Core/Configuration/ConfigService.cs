@@ -197,6 +197,13 @@ namespace NzbDrone.Core.Configuration
             set { SetValue("AutoRedownloadFailedFromInteractiveSearch", value); }
         }
 
+        public int AutoRedownloadFailedCacheLifetime
+        {
+            get { return GetValueInt("AutoRedownloadFailedCacheLifetime", 0); }
+
+            set { SetValue("AutoRedownloadFailedCacheLifetime", value); }
+        }
+
         public bool CreateEmptyMovieFolders
         {
             get { return GetValueBoolean("CreateEmptyMovieFolders", false); }
