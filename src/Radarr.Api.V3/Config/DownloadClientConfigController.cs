@@ -12,6 +12,9 @@ namespace Radarr.Api.V3.Config
         public DownloadClientConfigController(IConfigService configService)
             : base(configService)
         {
+            SharedValidator.RuleFor(c => c.AutoRedownloadFailedCacheLifetime)
+                           .GreaterThanOrEqualTo(0);
+
             SharedValidator.RuleFor(c => c.MinimumTitleSimilarity)
                            .InclusiveBetween(0, 100);
         }

@@ -6,6 +6,7 @@ namespace NzbDrone.Core.IndexerSearch
     public class MoviesSearchCommand : Command
     {
         public List<int> MovieIds { get; set; }
+        public bool UseCachedReleases { get; set; }
 
         public override bool SendUpdatesToClient => true;
     }

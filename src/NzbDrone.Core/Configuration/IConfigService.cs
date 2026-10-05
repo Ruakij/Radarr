@@ -24,6 +24,7 @@ namespace NzbDrone.Core.Configuration
 
         bool AutoRedownloadFailed { get; set; }
         bool AutoRedownloadFailedFromInteractiveSearch { get; set; }
+        int AutoRedownloadFailedCacheLifetime { get; set; }
         int ManualImportTimeout { get; set; }
 
         // Media Management
