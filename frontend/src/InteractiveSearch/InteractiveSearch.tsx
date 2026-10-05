@@ -4,13 +4,14 @@ import ClientSideCollectionAppState from 'App/State/ClientSideCollectionAppState
 import ReleasesAppState from 'App/State/ReleasesAppState';
 import Alert from 'Components/Alert';
 import Icon from 'Components/Icon';
+import Button from 'Components/Link/Button';
 import LoadingIndicator from 'Components/Loading/LoadingIndicator';
 import FilterMenu from 'Components/Menu/FilterMenu';
 import PageMenuButton from 'Components/Menu/PageMenuButton';
 import Column from 'Components/Table/Column';
 import Table from 'Components/Table/Table';
 import TableBody from 'Components/Table/TableBody';
-import { align, icons, kinds, sortDirections } from 'Helpers/Props';
+import { align, icons, kinds, sizes, sortDirections } from 'Helpers/Props';
 import { SortDirection } from 'Helpers/Props/sortDirections';
 import {
   fetchReleases,
@@ -174,11 +175,34 @@ function InteractiveSearch({ searchPayload }: InteractiveSearchProps) {
     []
   );
 
+  const handleSearchAgainPress = useCallback(() => {
+    dispatch(fetchReleases({ ...searchPayload, refresh: true }));
+  }, [dispatch, searchPayload]);
+
   const errorMessage = getErrorMessage(error);
+  const searchTime = items[0]?.searchTime;
 
   return (
     <div>
       <div className={styles.filterMenuContainer}>
+        {!isFetching && searchTime ? (
+          <span>
+            {translate('SearchResultsCachedMinutesAgo', {
+              minutes: Math.round(
+                (Date.now() - new Date(searchTime).getTime()) / 60000
+              ),
+            })}
+          </span>
+        ) : null}
+
+        <Button
+          size={sizes.SMALL}
+          isDisabled={isFetching}
+          onPress={handleSearchAgainPress}
+        >
+          {translate('SearchAgain')}
+        </Button>
+
         <FilterMenu
           alignMenu={align.RIGHT}
           selectedFilterKey={selectedFilterKey}

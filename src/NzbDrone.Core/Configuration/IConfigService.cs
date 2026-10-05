@@ -24,7 +24,6 @@ namespace NzbDrone.Core.Configuration
 
         bool AutoRedownloadFailed { get; set; }
         bool AutoRedownloadFailedFromInteractiveSearch { get; set; }
-        int AutoRedownloadFailedCacheLifetime { get; set; }
         int ManualImportTimeout { get; set; }
 
         // Media Management
@@ -63,6 +62,7 @@ namespace NzbDrone.Core.Configuration
         int EarlySearchReturnMinimumWait { get; set; }
 
         int AvailabilityDelay { get; set; }
+        int SearchResultCacheLifetime { get; set; }
 
         bool AllowHardcodedSubs { get; set; }
         string WhitelistedHardcodedSubs { get; set; }

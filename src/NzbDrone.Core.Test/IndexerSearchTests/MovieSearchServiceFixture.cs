@@ -43,7 +43,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             };
 
             _releases = Enumerable.Range(1, 3)
-                .Select(i => new ReleaseInfo { Guid = $"guid{i}", Title = $"Movie.2024.Release{i}", DownloadProtocol = DownloadProtocol.Usenet })
+                .Select(i => new ReleaseInfo { IndexerId = 1, Guid = $"guid{i}", Title = $"Movie.2024.Release{i}", DownloadProtocol = DownloadProtocol.Usenet })
                 .ToList();
 
             _blocklistedGuids = new HashSet<string>();
@@ -54,7 +54,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             Mocker.SetConstant<IProcessDownloadDecisions>(Mocker.Resolve<ProcessDownloadDecisions>());
 
             Mocker.GetMock<IConfigService>()
-                  .SetupGet(s => s.AutoRedownloadFailedCacheLifetime)
+                  .SetupGet(s => s.SearchResultCacheLifetime)
                   .Returns(10);
 
             Mocker.GetMock<IMovieService>()
@@ -106,14 +106,14 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
         private void SearchAndFail(string guid)
         {
-            Subject.Execute(new MoviesSearchCommand { MovieIds = new List<int> { _movie.Id } });
+            Search();
 
             _blocklistedGuids.Add(guid);
         }
 
         private void RedownloadFailed()
         {
-            Subject.Execute(new MoviesSearchCommand { MovieIds = new List<int> { _movie.Id }, UseCachedReleases = true });
+            Subject.Execute(new MoviesSearchCommand { MovieIds = new List<int> { _movie.Id }, FallbackToIndexers = true });
         }
 
         private void VerifyGrabbed(string guid)
@@ -127,9 +127,14 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             _indexer.Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Exactly(count));
         }
 
-        private ICached<List<ReleaseInfo>> GetCache()
+        private ICached<SearchResultCacheEntry> GetCache()
         {
-            return Mocker.Resolve<ICacheManager>().GetCache<List<ReleaseInfo>>(typeof(ReleaseSearchService), "approvedReleases");
+            return Mocker.Resolve<ICacheManager>().GetCache<SearchResultCacheEntry>(typeof(ReleaseSearchService), "searchResults");
+        }
+
+        private void Search()
+        {
+            Subject.Execute(new MoviesSearchCommand { MovieIds = new List<int> { _movie.Id } });
         }
 
         [Test]
@@ -187,7 +192,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         public void should_search_when_cache_is_disabled()
         {
             Mocker.GetMock<IConfigService>()
-                  .SetupGet(s => s.AutoRedownloadFailedCacheLifetime)
+                  .SetupGet(s => s.SearchResultCacheLifetime)
                   .Returns(0);
 
             SearchAndFail("guid1");
@@ -228,11 +233,11 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         }
 
         [Test]
-        public void should_cache_temporarily_rejected_releases()
+        public void should_cache_rejected_releases()
         {
-            _delayedGuids.Add("guid2");
+            _blocklistedGuids.Add("guid2");
             SearchAndFail("guid1");
-            _delayedGuids.Clear();
+            _blocklistedGuids.Remove("guid2");
 
             RedownloadFailed();
 
@@ -243,7 +248,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         [Test]
         public void should_clear_expired_cache_entries_when_caching()
         {
-            GetCache().Set("99", _releases.ToList(), TimeSpan.FromMilliseconds(-1));
+            GetCache().Set("99", new SearchResultCacheEntry(_releases.ToList(), new HashSet<int> { 1 }, DateTime.UtcNow), TimeSpan.FromMilliseconds(-1));
 
             SearchAndFail("guid1");
 
@@ -258,22 +263,61 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             GetCache().Count.Should().Be(1);
 
             Mocker.GetMock<IConfigService>()
-                  .SetupGet(s => s.AutoRedownloadFailedCacheLifetime)
+                  .SetupGet(s => s.SearchResultCacheLifetime)
                   .Returns(0);
 
-            Subject.Execute(new MoviesSearchCommand { MovieIds = new List<int> { _movie.Id } });
+            Search();
 
             GetCache().Count.Should().Be(0);
         }
 
         [Test]
-        public void should_not_use_cached_releases_for_regular_search()
+        public void should_use_cached_releases_for_automatic_search()
         {
             SearchAndFail("guid1");
 
-            Subject.Execute(new MoviesSearchCommand { MovieIds = new List<int> { _movie.Id } });
+            Search();
+
+            VerifyGrabbed("guid2");
+            VerifySearchCount(1);
+        }
+
+        [Test]
+        public void should_not_search_indexers_for_automatic_search_when_no_cached_release_is_acceptable()
+        {
+            SearchAndFail("guid1");
+            _blocklistedGuids.Add("guid2");
+            _blocklistedGuids.Add("guid3");
+
+            Search();
+
+            VerifySearchCount(1);
+        }
+
+        [Test]
+        public void should_search_when_cache_is_disabled_for_automatic_search()
+        {
+            Mocker.GetMock<IConfigService>()
+                  .SetupGet(s => s.SearchResultCacheLifetime)
+                  .Returns(0);
+
+            Search();
+            Search();
 
             VerifySearchCount(2);
+        }
+
+        [Test]
+        public void should_ignore_cached_releases_of_indexers_no_longer_enabled()
+        {
+            _releases[1].IndexerId = 2;
+            SearchAndFail("guid1");
+
+            RedownloadFailed();
+
+            VerifyGrabbed("guid3");
+            Mocker.GetMock<IDownloadService>()
+                  .Verify(v => v.DownloadReport(It.Is<RemoteMovie>(r => r.Release.Guid == "guid2"), null), Times.Never());
         }
     }
 }

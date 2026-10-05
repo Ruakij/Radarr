@@ -183,6 +183,14 @@ namespace NzbDrone.Core.Configuration
             set { SetValue("EarlySearchReturnMinimumWait", value); }
         }
 
+        public int SearchResultCacheLifetime
+        {
+            // Falls back to the value of the setting it was renamed from
+            get { return GetValueInt("SearchResultCacheLifetime", GetValueInt("AutoRedownloadFailedCacheLifetime", 0)); }
+
+            set { SetValue("SearchResultCacheLifetime", value); }
+        }
+
         public bool AllowHardcodedSubs
         {
             get { return GetValueBoolean("AllowHardcodedSubs", false); }
@@ -209,13 +217,6 @@ namespace NzbDrone.Core.Configuration
             get { return GetValueBoolean("AutoRedownloadFailedFromInteractiveSearch", true); }
 
             set { SetValue("AutoRedownloadFailedFromInteractiveSearch", value); }
-        }
-
-        public int AutoRedownloadFailedCacheLifetime
-        {
-            get { return GetValueInt("AutoRedownloadFailedCacheLifetime", 0); }
-
-            set { SetValue("AutoRedownloadFailedCacheLifetime", value); }
         }
 
         public int ManualImportTimeout
