@@ -33,6 +33,7 @@ namespace NzbDrone.Core.Test.Download.DownloadProcessingServiceTests
                                                        .With(c => c.Added = DateTime.UtcNow.AddDays(-1))
                                                        .With(c => c.IsTrackable = true)
                                                        .With(c => c.ManualInteractionRequiredSince = null)
+                                                       .With(c => c.ImportRejectedPermanently = true)
                                                        .Build();
 
             Mocker.GetMock<ITrackedDownloadService>()
@@ -156,6 +157,18 @@ namespace NzbDrone.Core.Test.Download.DownloadProcessingServiceTests
 
             Mocker.GetMock<IFailedDownloadService>()
                   .Verify(v => v.ProcessFailed(It.IsAny<TrackedDownload>()), Times.Never());
+        }
+
+        [Test]
+        public void should_not_count_import_blocked_by_transient_rejections()
+        {
+            GivenTimeout(0);
+            _trackedDownload.ImportRejectedPermanently = false;
+
+            Subject.Execute(new ProcessMonitoredDownloadsCommand());
+
+            VerifyNotFailed();
+            _trackedDownload.ManualInteractionRequiredSince.Should().BeNull();
         }
 
         [Test]
