@@ -7,4 +7,5 @@ export default interface IndexerOptions {
   availabilityDelay: number;
   whitelistedHardcodedSubs: string[];
   allowHardcodedSubs: boolean;
+  searchResultCacheLifetime: number;
 }
