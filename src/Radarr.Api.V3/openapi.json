@@ -10054,6 +10054,21 @@
           "whitelistedHardcodedSubs": {
             "type": "string",
             "nullable": true
+          },
+          "earlySearchReturn": {
+            "type": "boolean"
+          },
+          "earlySearchReturnMinimumWait": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "earlySearchReturnCustomFormatScore": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "earlySearchReturnTimeout": {
+            "type": "integer",
+            "format": "int32"
           }
         },
         "additionalProperties": false
