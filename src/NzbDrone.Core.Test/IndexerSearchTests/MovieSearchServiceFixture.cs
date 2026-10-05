@@ -14,6 +14,7 @@ using NzbDrone.Core.Exceptions;
 using NzbDrone.Core.Indexers;
 using NzbDrone.Core.IndexerSearch;
 using NzbDrone.Core.IndexerSearch.Definitions;
+using NzbDrone.Core.Messaging.Commands;
 using NzbDrone.Core.Movies;
 using NzbDrone.Core.Movies.Translations;
 using NzbDrone.Core.Parser.Model;
@@ -305,6 +306,22 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             Search();
 
             VerifySearchCount(2);
+        }
+
+        [Test]
+        public void should_search_indexers_and_refresh_cache_for_manual_search()
+        {
+            SearchAndFail("guid1");
+            _releases.Add(new ReleaseInfo { IndexerId = 1, Guid = "guid4", Title = "Movie.2024.Release4", DownloadProtocol = DownloadProtocol.Usenet });
+
+            Subject.Execute(new MoviesSearchCommand { MovieIds = new List<int> { _movie.Id }, Trigger = CommandTrigger.Manual });
+
+            VerifySearchCount(2);
+
+            Search();
+
+            VerifySearchCount(2);
+            GetCache().Find(_movie.Id.ToString()).Releases.Should().Contain(r => r.Guid == "guid4");
         }
 
         [Test]
