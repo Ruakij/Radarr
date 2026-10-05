@@ -9,6 +9,4 @@ export default interface IndexerOptions {
   allowHardcodedSubs: boolean;
   earlySearchReturn: boolean;
   earlySearchReturnMinimumWait: number;
-  earlySearchReturnCustomFormatScore: number;
-  earlySearchReturnTimeout: number;
 }

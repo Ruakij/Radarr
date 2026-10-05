@@ -58,8 +58,6 @@ namespace NzbDrone.Core.Configuration
 
         bool EarlySearchReturn { get; set; }
         int EarlySearchReturnMinimumWait { get; set; }
-        int EarlySearchReturnCustomFormatScore { get; set; }
-        int EarlySearchReturnTimeout { get; set; }
 
         int AvailabilityDelay { get; set; }
 
