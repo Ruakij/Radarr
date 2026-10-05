@@ -13,6 +13,7 @@ namespace Radarr.Api.V3.Config
 
         public bool AutoRedownloadFailed { get; set; }
         public bool AutoRedownloadFailedFromInteractiveSearch { get; set; }
+        public int? ManualImportTimeout { get; set; }
     }
 
     public static class DownloadClientConfigResourceMapper
@@ -28,7 +29,8 @@ namespace Radarr.Api.V3.Config
                 MinimumTitleSimilarity = model.MinimumTitleSimilarity,
 
                 AutoRedownloadFailed = model.AutoRedownloadFailed,
-                AutoRedownloadFailedFromInteractiveSearch = model.AutoRedownloadFailedFromInteractiveSearch
+                AutoRedownloadFailedFromInteractiveSearch = model.AutoRedownloadFailedFromInteractiveSearch,
+                ManualImportTimeout = model.ManualImportTimeout < 0 ? null : model.ManualImportTimeout
             };
         }
     }
