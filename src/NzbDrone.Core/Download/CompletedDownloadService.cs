@@ -271,7 +271,7 @@ namespace NzbDrone.Core.Download
             if (statusMessages.Any())
             {
                 trackedDownload.Warn(statusMessages.ToArray());
-                SetStateToImportBlocked(trackedDownload);
+                SetStateToImportBlocked(trackedDownload, trackedDownload.ImportRejectedPermanently);
             }
         }
 
@@ -330,9 +330,11 @@ namespace NzbDrone.Core.Download
             return false;
         }
 
-        private void SetStateToImportBlocked(TrackedDownload trackedDownload)
+        // Blocks without an import attempt (unmatched movie, unparsable download) only resolve by manual interaction
+        private void SetStateToImportBlocked(TrackedDownload trackedDownload, bool rejectedPermanently = true)
         {
             trackedDownload.State = TrackedDownloadState.ImportBlocked;
+            trackedDownload.ImportRejectedPermanently = rejectedPermanently;
 
             if (!trackedDownload.HasNotifiedManualInteractionRequired)
             {

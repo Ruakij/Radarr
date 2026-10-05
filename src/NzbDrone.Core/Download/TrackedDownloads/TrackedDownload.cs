@@ -22,7 +22,7 @@ namespace NzbDrone.Core.Download.TrackedDownloads
         // Kept in memory only, the manual import timeout starts over after a restart
         public DateTime? ManualInteractionRequiredSince { get; set; }
 
-        // Set by the last automatic import, true when it was rejected for reasons that do not resolve by waiting
+        // True when the last import attempt or block has reasons that do not resolve by waiting
         public bool ImportRejectedPermanently { get; set; }
         public string FailMessage { get; private set; }
 

@@ -48,10 +48,10 @@ namespace NzbDrone.Core.Download
 
         private void CheckManualImportTimeout(TrackedDownload trackedDownload)
         {
-            var requiresManualInteraction = trackedDownload.State == TrackedDownloadState.ImportBlocked ||
-                                            (trackedDownload.State == TrackedDownloadState.ImportPending &&
-                                             trackedDownload.Status == TrackedDownloadStatus.Warning &&
-                                             trackedDownload.ImportRejectedPermanently);
+            var requiresManualInteraction = trackedDownload.ImportRejectedPermanently &&
+                                            (trackedDownload.State == TrackedDownloadState.ImportBlocked ||
+                                             (trackedDownload.State == TrackedDownloadState.ImportPending &&
+                                              trackedDownload.Status == TrackedDownloadStatus.Warning));
 
             if (!requiresManualInteraction)
             {
