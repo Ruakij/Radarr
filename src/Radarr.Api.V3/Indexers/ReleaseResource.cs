@@ -69,6 +69,10 @@ namespace Radarr.Api.V3.Indexers
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
         public bool? ShouldOverride { get; set; }
+
+        // Set when the release comes from cached search results
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+        public DateTime? SearchTime { get; set; }
     }
 
     public static class ReleaseResourceMapper
