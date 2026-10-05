@@ -27,7 +27,7 @@ interface Release {
   history?: ReleaseHistory;
   movieRequested: boolean;
   downloadAllowed: boolean;
-  searchTime?: string;
+  cachedAt?: string;
 
   isGrabbing?: boolean;
   isGrabbed?: boolean;
