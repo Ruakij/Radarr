@@ -152,7 +152,7 @@ namespace Radarr.Api.V3.Indexers
                 var history = _historyService.FindByMovieId(movieId);
                 var releases = MapDecisions(prioritizedDecisions, history);
 
-                releases.ForEach(r => r.SearchTime = cached?.SearchTime);
+                releases.ForEach(r => r.CachedAt = cached?.SearchedAt);
 
                 return releases;
             }

@@ -99,12 +99,12 @@ namespace NzbDrone.Core.IndexerSearch
 
             var releases = entry.Releases.Where(r => indexerIds.Contains(r.IndexerId)).ToList();
 
-            _logger.ProgressInfo("Using {0} search results for {1} cached at {2}", releases.Count, searchSpec, entry.SearchTime.ToLocalTime());
+            _logger.ProgressInfo("Using {0} search results for {1} cached at {2}", releases.Count, searchSpec, entry.SearchedAt.ToLocalTime());
 
             // Decisions are made again so changes to the movie, profile, blocklist and queue since the search apply
             var decisions = _makeDownloadDecision.GetSearchDecision(releases, searchSpec);
 
-            return new CachedSearchResult(DeDupeDecisions(decisions), entry.SearchTime);
+            return new CachedSearchResult(DeDupeDecisions(decisions), entry.SearchedAt);
         }
 
         private void CacheSearchResults(Movie movie, List<ReleaseInfo> reports, HashSet<int> indexerIds)

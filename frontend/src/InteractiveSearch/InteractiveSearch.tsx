@@ -180,16 +180,16 @@ function InteractiveSearch({ searchPayload }: InteractiveSearchProps) {
   }, [dispatch, searchPayload]);
 
   const errorMessage = getErrorMessage(error);
-  const searchTime = items[0]?.searchTime;
+  const cachedAt = isFetching ? undefined : items[0]?.cachedAt;
 
   return (
     <div>
       <div className={styles.filterMenuContainer}>
-        {!isFetching && searchTime ? (
+        {cachedAt ? (
           <span>
             {translate('SearchResultsCachedMinutesAgo', {
               minutes: Math.round(
-                (Date.now() - new Date(searchTime).getTime()) / 60000
+                (Date.now() - new Date(cachedAt).getTime()) / 60000
               ),
             })}
           </span>

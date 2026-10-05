@@ -12226,7 +12226,7 @@
             "type": "boolean",
             "nullable": true
           },
-          "searchTime": {
+          "cachedAt": {
             "type": "string",
             "format": "date-time",
             "nullable": true
