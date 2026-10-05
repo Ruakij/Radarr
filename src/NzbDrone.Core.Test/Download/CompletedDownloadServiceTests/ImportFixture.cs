@@ -209,6 +209,79 @@ namespace NzbDrone.Core.Test.Download
             AssertImported();
         }
 
+        [TestCase(ImportRejectionReason.Unpacking, false)]
+        [TestCase(ImportRejectionReason.FileLocked, false)]
+        [TestCase(ImportRejectionReason.MinimumFreeSpace, false)]
+        [TestCase(ImportRejectionReason.NotQualityUpgrade, true)]
+        public void should_flag_permanent_import_rejections(ImportRejectionReason reason, bool permanent)
+        {
+            Mocker.GetMock<IDownloadedMovieImportService>()
+                .Setup(v => v.ProcessPath(It.IsAny<string>(), It.IsAny<ImportMode>(), It.IsAny<Movie>(), It.IsAny<DownloadClientItem>()))
+                .Returns(new List<ImportResult>
+                {
+                    new ImportResult(
+                        new ImportDecision(
+                            new LocalMovie { Path = @"C:\TestPath\Droned.1998.mkv" },
+                            new ImportRejection(reason, "Rejected!")),
+                        "Test Failure")
+                });
+
+            Subject.Import(_trackedDownload);
+
+            _trackedDownload.ImportRejectedPermanently.Should().Be(permanent);
+        }
+
+        [TestCase(ImportRejectionReason.Unpacking, false)]
+        [TestCase(ImportRejectionReason.Unknown, true)]
+        public void should_flag_blocked_download_by_its_rejections(ImportRejectionReason reason, bool permanent)
+        {
+            Mocker.GetMock<IDownloadedMovieImportService>()
+                .Setup(v => v.ProcessPath(It.IsAny<string>(), It.IsAny<ImportMode>(), It.IsAny<Movie>(), It.IsAny<DownloadClientItem>()))
+                .Returns(new List<ImportResult>
+                {
+                    new ImportResult(
+                        new ImportDecision(
+                            new LocalMovie { Path = @"C:\TestPath\Droned.1998.CD1.mkv" },
+                            new ImportRejection(reason, "Rejected!")),
+                        "Test Failure"),
+                    new ImportResult(
+                        new ImportDecision(
+                            new LocalMovie { Path = @"C:\TestPath\Droned.1998.CD2.mkv" },
+                            new ImportRejection(reason, "Rejected!")),
+                        "Test Failure")
+                });
+
+            Subject.Import(_trackedDownload);
+
+            _trackedDownload.State.Should().Be(TrackedDownloadState.ImportBlocked);
+            _trackedDownload.ImportRejectedPermanently.Should().Be(permanent);
+        }
+
+        [Test]
+        public void should_flag_unparsable_download_as_permanently_blocked()
+        {
+            _trackedDownload.RemoteMovie = null;
+
+            Subject.Import(_trackedDownload);
+
+            _trackedDownload.State.Should().Be(TrackedDownloadState.ImportBlocked);
+            _trackedDownload.ImportRejectedPermanently.Should().BeTrue();
+        }
+
+        [Test]
+        public void should_not_flag_permanent_rejection_when_no_files_were_found()
+        {
+            _trackedDownload.ImportRejectedPermanently = true;
+
+            Mocker.GetMock<IDownloadedMovieImportService>()
+                .Setup(v => v.ProcessPath(It.IsAny<string>(), It.IsAny<ImportMode>(), It.IsAny<Movie>(), It.IsAny<DownloadClientItem>()))
+                .Returns(new List<ImportResult>());
+
+            Subject.Import(_trackedDownload);
+
+            _trackedDownload.ImportRejectedPermanently.Should().BeFalse();
+        }
+
         private void AssertNotImported()
         {
             Mocker.GetMock<IEventAggregator>()
