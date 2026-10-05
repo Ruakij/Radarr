@@ -1,0 +1,65 @@
+name: Fork image
+
+on:
+  push:
+    tags: ['*.*.*-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag against upstream version
+        id: version
+        run: |
+          base="${GITHUB_REF_NAME%%-*}"
+          major="$(grep -oP "majorVersion: '\K[^']+" azure-pipelines.yml)"
+          if [ "$base" != "$major" ]; then
+            echo "::error::tag base $base does not match majorVersion $major"
+            exit 1
+          fi
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.11.1
+          cache: yarn
+
+      - name: Build
+        env:
+          RADARRVERSION: ${{ steps.version.outputs.base }}.${{ github.run_number }}
+          BUILD_SOURCEBRANCHNAME: master
+        run: |
+          for rid in linux-musl-x64 linux-musl-arm64; do
+            ./build.sh --backend --frontend --packages -f net8.0 -r "$rid"
+            rm -rf "_artifacts/$rid/net8.0/Radarr/Radarr.Update"
+          done
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: _artifacts
+          file: .github/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: BASE_VERSION=${{ steps.version.outputs.base }}
+          push: true
+          tags: |
+            ghcr.io/ruakij/radarr:${{ github.ref_name }}
+            ghcr.io/ruakij/radarr:latest
