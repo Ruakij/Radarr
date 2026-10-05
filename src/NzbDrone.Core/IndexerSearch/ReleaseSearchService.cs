@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using NLog;
+using NzbDrone.Common.Cache;
 using NzbDrone.Common.Extensions;
 using NzbDrone.Common.Instrumentation.Extensions;
+using NzbDrone.Core.Configuration;
 using NzbDrone.Core.DecisionEngine;
 using NzbDrone.Core.Indexers;
 using NzbDrone.Core.IndexerSearch.Definitions;
@@ -19,6 +21,7 @@ namespace NzbDrone.Core.IndexerSearch
     {
         Task<List<DownloadDecision>> MovieSearch(int movieId, bool userInvokedSearch, bool interactiveSearch);
         Task<List<DownloadDecision>> MovieSearch(Movie movie, bool userInvokedSearch, bool interactiveSearch);
+        List<DownloadDecision> CachedMovieSearch(int movieId);
     }
 
     public class ReleaseSearchService : ISearchForReleases
@@ -28,6 +31,8 @@ namespace NzbDrone.Core.IndexerSearch
         private readonly IMovieService _movieService;
         private readonly IMovieTranslationService _movieTranslationService;
         private readonly IQualityProfileService _qualityProfileService;
+        private readonly IConfigService _configService;
+        private readonly ICached<List<ReleaseInfo>> _approvedReleasesCache;
         private readonly Logger _logger;
 
         public ReleaseSearchService(IIndexerFactory indexerFactory,
@@ -35,6 +40,8 @@ namespace NzbDrone.Core.IndexerSearch
                                 IMovieService movieService,
                                 IMovieTranslationService movieTranslationService,
                                 IQualityProfileService qualityProfileService,
+                                IConfigService configService,
+                                ICacheManager cacheManager,
                                 Logger logger)
         {
             _indexerFactory = indexerFactory;
@@ -42,15 +49,14 @@ namespace NzbDrone.Core.IndexerSearch
             _movieService = movieService;
             _movieTranslationService = movieTranslationService;
             _qualityProfileService = qualityProfileService;
+            _configService = configService;
+            _approvedReleasesCache = cacheManager.GetCache<List<ReleaseInfo>>(GetType(), "approvedReleases");
             _logger = logger;
         }
 
         public async Task<List<DownloadDecision>> MovieSearch(int movieId, bool userInvokedSearch, bool interactiveSearch)
         {
-            var movie = _movieService.GetMovie(movieId);
-            movie.MovieMetadata.Value.Translations = _movieTranslationService.GetAllTranslationsForMovieMetadata(movie.MovieMetadataId);
-
-            return await MovieSearch(movie, userInvokedSearch, interactiveSearch);
+            return await MovieSearch(GetMovieWithTranslations(movieId), userInvokedSearch, interactiveSearch);
         }
 
         public async Task<List<DownloadDecision>> MovieSearch(Movie movie, bool userInvokedSearch, bool interactiveSearch)
@@ -62,7 +68,58 @@ namespace NzbDrone.Core.IndexerSearch
             var decisions = await Dispatch(indexer => indexer.Fetch(searchSpec), searchSpec);
             downloadDecisions.AddRange(decisions);
 
-            return DeDupeDecisions(downloadDecisions);
+            var dedupedDecisions = DeDupeDecisions(downloadDecisions);
+
+            if (!interactiveSearch)
+            {
+                CacheApprovedReleases(movie, dedupedDecisions);
+            }
+
+            return dedupedDecisions;
+        }
+
+        public List<DownloadDecision> CachedMovieSearch(int movieId)
+        {
+            var releases = _configService.AutoRedownloadFailedCacheLifetime > 0 ? _approvedReleasesCache.Find(movieId.ToString()) : null;
+
+            if (releases == null || releases.Empty())
+            {
+                return new List<DownloadDecision>();
+            }
+
+            // Re-evaluate against the current movie, blocklist and queue, since all of them may have changed since the search
+            var searchSpec = Get<MovieSearchCriteria>(GetMovieWithTranslations(movieId), false, false);
+
+            _logger.Debug("Re-evaluating {0} cached releases for {1}", releases.Count, searchSpec);
+
+            return _makeDownloadDecision.GetSearchDecision(releases, searchSpec);
+        }
+
+        private void CacheApprovedReleases(Movie movie, List<DownloadDecision> decisions)
+        {
+            var lifetime = _configService.AutoRedownloadFailedCacheLifetime;
+
+            if (lifetime <= 0)
+            {
+                _approvedReleasesCache.Clear();
+                return;
+            }
+
+            // Cached<T> only evicts expired entries on lookup, so drop them here to keep the cache bounded
+            _approvedReleasesCache.ClearExpired();
+
+            // Temporarily rejected releases are held by a delay profile, the re-evaluation applies the delay again
+            var approvedReleases = decisions.Where(d => d.Approved || d.TemporarilyRejected).Select(d => d.RemoteMovie.Release).ToList();
+
+            _approvedReleasesCache.Set(movie.Id.ToString(), approvedReleases, TimeSpan.FromMinutes(lifetime));
+        }
+
+        private Movie GetMovieWithTranslations(int movieId)
+        {
+            var movie = _movieService.GetMovie(movieId);
+            movie.MovieMetadata.Value.Translations = _movieTranslationService.GetAllTranslationsForMovieMetadata(movie.MovieMetadataId);
+
+            return movie;
         }
 
         private TSpec Get<TSpec>(Movie movie, bool userInvokedSearch, bool interactiveSearch)
