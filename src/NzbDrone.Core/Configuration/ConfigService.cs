@@ -183,20 +183,6 @@ namespace NzbDrone.Core.Configuration
             set { SetValue("EarlySearchReturnMinimumWait", value); }
         }
 
-        public int EarlySearchReturnCustomFormatScore
-        {
-            get { return GetValueInt("EarlySearchReturnCustomFormatScore", 0); }
-
-            set { SetValue("EarlySearchReturnCustomFormatScore", value); }
-        }
-
-        public int EarlySearchReturnTimeout
-        {
-            get { return GetValueInt("EarlySearchReturnTimeout", 60); }
-
-            set { SetValue("EarlySearchReturnTimeout", value); }
-        }
-
         public bool AllowHardcodedSubs
         {
             get { return GetValueBoolean("AllowHardcodedSubs", false); }
