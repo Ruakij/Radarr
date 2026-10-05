@@ -26,6 +26,13 @@ namespace NzbDrone.Core.Download
 
     public class CompletedDownloadService : ICompletedDownloadService
     {
+        private static readonly HashSet<ImportRejectionReason> TransientRejectionReasons = new HashSet<ImportRejectionReason>
+        {
+            ImportRejectionReason.Unpacking,
+            ImportRejectionReason.FileLocked,
+            ImportRejectionReason.MinimumFreeSpace
+        };
+
         private readonly IEventAggregator _eventAggregator;
         private readonly IHistoryService _historyService;
         private readonly IProvideImportItemService _provideImportItemService;
@@ -121,6 +128,8 @@ namespace NzbDrone.Core.Download
 
         public void Import(TrackedDownload trackedDownload)
         {
+            trackedDownload.ImportRejectedPermanently = false;
+
             SetImportItem(trackedDownload);
 
             if (!ValidatePath(trackedDownload))
@@ -150,6 +159,9 @@ namespace NzbDrone.Core.Download
             }
 
             trackedDownload.State = TrackedDownloadState.ImportPending;
+
+            var rejections = importResults.SelectMany(r => r.ImportDecision.Rejections).ToList();
+            trackedDownload.ImportRejectedPermanently = rejections.Any() && !rejections.Any(r => TransientRejectionReasons.Contains(r.Reason));
 
             if (importResults.Empty())
             {

@@ -1045,6 +1045,8 @@
   "ManualImportSelectMovie": "Manual Import - Select Movie",
   "ManualImportSelectQuality": " Manual Import - Select Quality",
   "ManualImportSetReleaseGroup": "Manual Import - Set Release Group",
+  "ManualImportTimeout": "Manual Import Timeout",
+  "ManualImportTimeoutHelpText": "Mark downloads as failed when they have been waiting for manual import longer than this, 0 fails them immediately. Leave empty to disable",
   "MappedNetworkDrivesWindowsService": "Mapped network drives are not available when running as a Windows Service, see the [FAQ]({url}) for more information.",
   "MarkAsFailed": "Mark as Failed",
   "MarkAsFailedConfirmation": "Are you sure you want to mark '{sourceTitle}' as failed?",
