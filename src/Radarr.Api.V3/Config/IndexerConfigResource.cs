@@ -15,8 +15,6 @@ namespace Radarr.Api.V3.Config
         public string WhitelistedHardcodedSubs { get; set; }
         public bool EarlySearchReturn { get; set; }
         public int EarlySearchReturnMinimumWait { get; set; }
-        public int EarlySearchReturnCustomFormatScore { get; set; }
-        public int EarlySearchReturnTimeout { get; set; }
     }
 
     public static class IndexerConfigResourceMapper
@@ -35,8 +33,6 @@ namespace Radarr.Api.V3.Config
                 WhitelistedHardcodedSubs = model.WhitelistedHardcodedSubs,
                 EarlySearchReturn = model.EarlySearchReturn,
                 EarlySearchReturnMinimumWait = model.EarlySearchReturnMinimumWait,
-                EarlySearchReturnCustomFormatScore = model.EarlySearchReturnCustomFormatScore,
-                EarlySearchReturnTimeout = model.EarlySearchReturnTimeout,
             };
         }
     }
