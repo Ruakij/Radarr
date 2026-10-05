@@ -53,6 +53,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Build amd64 image for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: _artifacts
+          file: .github/docker/Dockerfile
+          platforms: linux/amd64
+          build-args: BASE_VERSION=${{ steps.version.outputs.base }}
+          load: true
+          tags: radarr-smoke
+
+      - name: Smoke test
+        run: |
+          docker run -d --name smoke -p 7878:7878 radarr-smoke
+          for _ in $(seq 90); do
+            if curl -fs localhost:7878/ping; then exit 0; fi
+            sleep 1
+          done
+          docker logs smoke
+          exit 1
+
       - uses: docker/build-push-action@v6
         with:
           context: _artifacts
