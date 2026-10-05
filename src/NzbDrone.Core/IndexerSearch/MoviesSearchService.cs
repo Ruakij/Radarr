@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using NLog;
+using NzbDrone.Common.Extensions;
 using NzbDrone.Common.Instrumentation.Extensions;
 using NzbDrone.Core.Datastore;
 using NzbDrone.Core.DecisionEngine;
@@ -45,7 +46,7 @@ namespace NzbDrone.Core.IndexerSearch
                 .Where(m => (m.Monitored && m.IsAvailable()) || userInvokedSearch)
                 .ToList();
 
-            SearchForBulkMovies(movies, userInvokedSearch).GetAwaiter().GetResult();
+            SearchForBulkMovies(movies, userInvokedSearch, message.UseCachedReleases).GetAwaiter().GetResult();
         }
 
         public void Execute(MissingMoviesSearchCommand message)
@@ -88,13 +89,24 @@ namespace NzbDrone.Core.IndexerSearch
             SearchForBulkMovies(missing, message.Trigger == CommandTrigger.Manual).GetAwaiter().GetResult();
         }
 
-        private async Task SearchForBulkMovies(List<Movie> movies, bool userInvokedSearch)
+        private async Task SearchForBulkMovies(List<Movie> movies, bool userInvokedSearch, bool useCachedReleases = false)
         {
             _logger.ProgressInfo("Performing search for {0} movies", movies.Count);
             var downloadedCount = 0;
 
             foreach (var movieId in movies.GroupBy(e => e.Id).OrderBy(g => g.Min(m => m.LastSearchTime ?? DateTime.MinValue)))
             {
+                if (useCachedReleases)
+                {
+                    var cachedGrabbed = await GrabCachedRelease(movieId.Key);
+
+                    if (cachedGrabbed.HasValue)
+                    {
+                        downloadedCount += cachedGrabbed.Value;
+                        continue;
+                    }
+                }
+
                 List<DownloadDecision> decisions;
 
                 try
@@ -113,6 +125,35 @@ namespace NzbDrone.Core.IndexerSearch
             }
 
             _logger.ProgressInfo("Completed search for {0} movies. {1} reports downloaded.", movies.Count, downloadedCount);
+        }
+
+        private async Task<int?> GrabCachedRelease(int movieId)
+        {
+            try
+            {
+                var decisions = _releaseSearchService.CachedMovieSearch(movieId);
+
+                if (decisions.Empty())
+                {
+                    return null;
+                }
+
+                var processDecisions = await _processDownloadDecisions.ProcessDecisions(decisions);
+
+                if (processDecisions.Grabbed.Any() || processDecisions.Pending.Any())
+                {
+                    _logger.Debug("Used cached search results for movie: [{0}]", movieId);
+                    return processDecisions.Grabbed.Count;
+                }
+
+                _logger.Debug("No cached search result for movie [{0}] is acceptable anymore, searching indexers", movieId);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warn(ex, "Unable to grab cached search result for movie: [{0}], searching indexers", movieId);
+            }
+
+            return null;
         }
     }
 }

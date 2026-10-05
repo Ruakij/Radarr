@@ -13,6 +13,7 @@ namespace Radarr.Api.V3.Config
 
         public bool AutoRedownloadFailed { get; set; }
         public bool AutoRedownloadFailedFromInteractiveSearch { get; set; }
+        public int AutoRedownloadFailedCacheLifetime { get; set; }
         public int? ManualImportTimeout { get; set; }
     }
 
@@ -30,6 +31,7 @@ namespace Radarr.Api.V3.Config
 
                 AutoRedownloadFailed = model.AutoRedownloadFailed,
                 AutoRedownloadFailedFromInteractiveSearch = model.AutoRedownloadFailedFromInteractiveSearch,
+                AutoRedownloadFailedCacheLifetime = model.AutoRedownloadFailedCacheLifetime,
                 ManualImportTimeout = model.ManualImportTimeout < 0 ? null : model.ManualImportTimeout
             };
         }
