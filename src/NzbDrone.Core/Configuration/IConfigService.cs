@@ -59,6 +59,11 @@ namespace NzbDrone.Core.Configuration
 
         bool PreferIndexerFlags { get; set; }
 
+        bool EarlySearchReturn { get; set; }
+        int EarlySearchReturnMinimumWait { get; set; }
+        int EarlySearchReturnCustomFormatScore { get; set; }
+        int EarlySearchReturnTimeout { get; set; }
+
         int AvailabilityDelay { get; set; }
 
         bool AllowHardcodedSubs { get; set; }
