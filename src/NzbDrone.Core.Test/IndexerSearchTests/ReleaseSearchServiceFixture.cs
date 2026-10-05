@@ -10,19 +10,27 @@ using Moq;
 using NUnit.Framework;
 using NzbDrone.Common.Cache;
 using NzbDrone.Core.Configuration;
+using NzbDrone.Core.CustomFormats;
 using NzbDrone.Core.DecisionEngine;
+using NzbDrone.Core.DecisionEngine.Specifications;
 using NzbDrone.Core.Indexers;
 using NzbDrone.Core.IndexerSearch;
 using NzbDrone.Core.IndexerSearch.Definitions;
 using NzbDrone.Core.Movies;
 using NzbDrone.Core.Movies.Translations;
 using NzbDrone.Core.Parser.Model;
+using NzbDrone.Core.Profiles;
+using NzbDrone.Core.Profiles.Qualities;
+using NzbDrone.Core.Qualities;
 using NzbDrone.Core.Test.Framework;
 
 namespace NzbDrone.Core.Test.IndexerSearchTests
 {
         public class ReleaseSearchServiceFixture : CoreTest<ReleaseSearchService>
     {
+        private readonly CustomFormat _goodFormat = new CustomFormat("Good") { Id = 1 };
+        private readonly Dictionary<string, (Quality Quality, int Score)> _releases = new Dictionary<string, (Quality Quality, int Score)>();
+
         private Mock<IIndexer> _mockIndexer;
         private Movie _movie;
         private TaskCompletionSource<IList<ReleaseInfo>> _neverAnswers;
@@ -43,6 +51,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
                 .Returns(new List<DownloadDecision>());
 
             _neverAnswers = new TaskCompletionSource<IList<ReleaseInfo>>();
+            _releases.Clear();
 
             _movie = Builder<Movie>.CreateNew()
                 .With(v => v.Monitored = true)
@@ -55,6 +64,8 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             Mocker.GetMock<IMovieTranslationService>()
                 .Setup(s => s.GetAllTranslationsForMovieMetadata(It.IsAny<int>()))
                 .Returns(new List<MovieTranslation>());
+
+            GivenProfile();
         }
 
         [TearDown]
@@ -172,7 +183,21 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             criteria.Count.Should().Be(0);
         }
 
-        private List<IIndexer> GivenIndexers(params (int DelayMs, string Title, int Score)[] indexers)
+        private void GivenProfile(bool upgradeAllowed = true)
+        {
+            Mocker.SetConstant<IUpgradableSpecification>(Mocker.Resolve<UpgradableSpecification>());
+
+            _movie.QualityProfile = new QualityProfile
+            {
+                UpgradeAllowed = upgradeAllowed,
+                Cutoff = Quality.Bluray1080p.Id,
+                Items = Qualities.QualityFixture.GetDefaultQualities(),
+                FormatItems = new List<ProfileFormatItem> { new ProfileFormatItem { Format = _goodFormat, Score = 10 } },
+                CutoffFormatScore = 10
+            };
+        }
+
+        private List<IIndexer> GivenIndexers(params (int DelayMs, string Title, Quality Quality, int Score)[] indexers)
         {
             var result = indexers.Select((indexer, i) =>
             {
@@ -181,7 +206,9 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
                 mock.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>()))
                     .Returns(() => indexer.DelayMs == Timeout.Infinite
                         ? _neverAnswers.Task
-                        : FetchDelayed(indexer.DelayMs, new ReleaseInfo { Title = indexer.Title, Guid = indexer.Title, Size = indexer.Score }));
+                        : FetchDelayed(indexer.DelayMs, new ReleaseInfo { Title = indexer.Title, Guid = indexer.Title }));
+
+                _releases[indexer.Title] = (indexer.Quality, indexer.Score);
 
                 return mock.Object;
             }).ToList();
@@ -194,7 +221,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
                   .Setup(s => s.InteractiveSearchEnabled(true))
                   .Returns(result);
 
-            // Score is carried in Size, titles starting with "Rejected" are rejected
+            // Titles starting with "Rejected" are rejected
             Mocker.GetMock<IMakeDownloadDecision>()
                 .Setup(s => s.GetSearchDecision(It.IsAny<List<ReleaseInfo>>(), It.IsAny<SearchCriteriaBase>()))
                 .Returns<List<ReleaseInfo>, SearchCriteriaBase>((reports, criteria) => Decide(reports));
@@ -206,11 +233,18 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             return result;
         }
 
-        private static List<DownloadDecision> Decide(List<ReleaseInfo> reports)
+        private List<DownloadDecision> Decide(List<ReleaseInfo> reports)
         {
             return reports.Select(r =>
             {
-                var remoteMovie = new RemoteMovie { Release = r, CustomFormatScore = (int)r.Size };
+                var (quality, score) = _releases[r.Title];
+                var remoteMovie = new RemoteMovie
+                {
+                    Release = r,
+                    ParsedMovieInfo = new ParsedMovieInfo { Quality = new QualityModel(quality) },
+                    CustomFormats = score >= 10 ? new List<CustomFormat> { _goodFormat } : new List<CustomFormat>(),
+                    CustomFormatScore = score
+                };
 
                 return r.Title.StartsWith("Rejected")
                     ? new DownloadDecision(remoteMovie, new DownloadRejection(DownloadRejectionReason.Unknown, "Rejected"))
@@ -225,12 +259,10 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             return new List<ReleaseInfo> { release };
         }
 
-        private void GivenEarlySearchReturn(int minimumWait, int scoreThreshold, int timeout)
+        private void GivenEarlySearchReturn(int minimumWait)
         {
             Mocker.GetMock<IConfigService>().SetupGet(s => s.EarlySearchReturn).Returns(true);
             Mocker.GetMock<IConfigService>().SetupGet(s => s.EarlySearchReturnMinimumWait).Returns(minimumWait);
-            Mocker.GetMock<IConfigService>().SetupGet(s => s.EarlySearchReturnCustomFormatScore).Returns(scoreThreshold);
-            Mocker.GetMock<IConfigService>().SetupGet(s => s.EarlySearchReturnTimeout).Returns(timeout);
         }
 
         private async Task<List<string>> SearchTitles(bool interactiveSearch = false)
@@ -241,10 +273,10 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         }
 
         [Test]
-        public async Task should_return_early_when_good_release_found()
+        public async Task should_return_early_when_release_meets_cutoffs()
         {
-            GivenEarlySearchReturn(0, 10, 60);
-            GivenIndexers((0, "Fast", 10), (Timeout.Infinite, "Slow", 100));
+            GivenEarlySearchReturn(0);
+            GivenIndexers((0, "Fast", Quality.Bluray1080p, 10), (Timeout.Infinite, "Slow", Quality.Bluray2160p, 100));
 
             var stopwatch = Stopwatch.StartNew();
             var titles = await SearchTitles();
@@ -254,10 +286,22 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         }
 
         [Test]
+        public async Task should_return_early_when_profile_does_not_allow_upgrades()
+        {
+            GivenProfile(upgradeAllowed: false);
+            GivenEarlySearchReturn(0);
+            GivenIndexers((0, "Fast", Quality.SDTV, 0), (Timeout.Infinite, "Slow", Quality.Bluray2160p, 100));
+
+            var titles = await SearchTitles();
+
+            titles.Should().BeEquivalentTo("Fast");
+        }
+
+        [Test]
         public async Task should_wait_for_minimum_wait_before_returning_early()
         {
-            GivenEarlySearchReturn(2, 10, 60);
-            GivenIndexers((0, "Fast", 10), (200, "Medium", 0), (Timeout.Infinite, "Slow", 100));
+            GivenEarlySearchReturn(2);
+            GivenIndexers((0, "Fast", Quality.Bluray1080p, 10), (200, "Medium", Quality.SDTV, 0), (Timeout.Infinite, "Slow", Quality.Bluray2160p, 100));
 
             var stopwatch = Stopwatch.StartNew();
             var titles = await SearchTitles();
@@ -268,45 +312,42 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         }
 
         [Test]
-        public async Task should_wait_for_slow_indexer_when_no_good_release_found()
+        public async Task should_wait_for_slow_indexer_when_quality_cutoff_not_met()
         {
-            GivenEarlySearchReturn(0, 10, 60);
-            GivenIndexers((0, "Fast", 5), (0, "Rejected", 100), (500, "Slow", 20));
+            GivenEarlySearchReturn(0);
+            GivenIndexers((0, "Fast", Quality.HDTV720p, 100), (500, "Slow", Quality.Bluray1080p, 10));
 
             var titles = await SearchTitles();
 
-            titles.Should().BeEquivalentTo("Fast", "Rejected", "Slow");
+            titles.Should().BeEquivalentTo("Fast", "Slow");
         }
 
         [Test]
-        public async Task should_return_at_timeout_without_good_release()
+        public async Task should_wait_for_slow_indexer_when_custom_format_cutoff_not_met()
         {
-            GivenEarlySearchReturn(0, 10, 1);
-            GivenIndexers((0, "Fast", 5), (Timeout.Infinite, "Slow", 20));
+            GivenEarlySearchReturn(0);
+            GivenIndexers((0, "Fast", Quality.Bluray1080p, 0), (500, "Slow", Quality.Bluray1080p, 10));
 
-            var stopwatch = Stopwatch.StartNew();
             var titles = await SearchTitles();
 
-            stopwatch.Elapsed.Should().BeGreaterThan(TimeSpan.FromSeconds(0.5));
-            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
-            titles.Should().BeEquivalentTo("Fast");
+            titles.Should().BeEquivalentTo("Fast", "Slow");
         }
 
         [Test]
-        public async Task should_keep_results_of_answered_indexers_once_timeout_passed()
+        public async Task should_wait_for_slow_indexer_when_only_rejected_release_meets_cutoffs()
         {
-            GivenEarlySearchReturn(0, 10, 0);
-            GivenIndexers((0, "Fast", 5), (Timeout.Infinite, "Slow", 20));
+            GivenEarlySearchReturn(0);
+            GivenIndexers((0, "Rejected", Quality.Bluray1080p, 100), (500, "Slow", Quality.HDTV720p, 0));
 
             var titles = await SearchTitles();
 
-            titles.Should().BeEquivalentTo("Fast");
+            titles.Should().BeEquivalentTo("Rejected", "Slow");
         }
 
         [Test]
         public async Task should_wait_for_all_indexers_when_early_search_return_disabled()
         {
-            GivenIndexers((0, "Fast", 100), (500, "Slow", 20));
+            GivenIndexers((0, "Fast", Quality.Bluray1080p, 100), (500, "Slow", Quality.SDTV, 0));
 
             var titles = await SearchTitles();
 
@@ -316,8 +357,8 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         [Test]
         public async Task should_wait_for_all_indexers_for_interactive_search()
         {
-            GivenEarlySearchReturn(0, 10, 0);
-            GivenIndexers((0, "Fast", 100), (500, "Slow", 20));
+            GivenEarlySearchReturn(0);
+            GivenIndexers((0, "Fast", Quality.Bluray1080p, 100), (500, "Slow", Quality.SDTV, 0));
 
             var titles = await SearchTitles(true);
 
@@ -330,8 +371,8 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             Mocker.SetConstant<ICacheManager>(Mocker.Resolve<CacheManager>());
             Mocker.GetMock<IConfigService>().SetupGet(s => s.AutoRedownloadFailedCacheLifetime).Returns(60);
 
-            GivenEarlySearchReturn(0, 10, 60);
-            GivenIndexers((0, "Fast", 10), (Timeout.Infinite, "Slow", 100));
+            GivenEarlySearchReturn(0);
+            GivenIndexers((0, "Fast", Quality.Bluray1080p, 10), (Timeout.Infinite, "Slow", Quality.Bluray2160p, 100));
 
             await SearchTitles();
 

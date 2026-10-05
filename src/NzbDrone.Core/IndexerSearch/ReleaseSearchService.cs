@@ -10,6 +10,7 @@ using NzbDrone.Common.Extensions;
 using NzbDrone.Common.Instrumentation.Extensions;
 using NzbDrone.Core.Configuration;
 using NzbDrone.Core.DecisionEngine;
+using NzbDrone.Core.DecisionEngine.Specifications;
 using NzbDrone.Core.Indexers;
 using NzbDrone.Core.IndexerSearch.Definitions;
 using NzbDrone.Core.Movies;
@@ -35,6 +36,7 @@ namespace NzbDrone.Core.IndexerSearch
         private readonly IQualityProfileService _qualityProfileService;
         private readonly IConfigService _configService;
         private readonly ICached<List<ReleaseInfo>> _approvedReleasesCache;
+        private readonly IUpgradableSpecification _upgradableSpecification;
         private readonly Logger _logger;
 
         public ReleaseSearchService(IIndexerFactory indexerFactory,
@@ -44,6 +46,7 @@ namespace NzbDrone.Core.IndexerSearch
                                 IQualityProfileService qualityProfileService,
                                 IConfigService configService,
                                 ICacheManager cacheManager,
+                                IUpgradableSpecification upgradableSpecification,
                                 Logger logger)
         {
             _indexerFactory = indexerFactory;
@@ -53,6 +56,7 @@ namespace NzbDrone.Core.IndexerSearch
             _qualityProfileService = qualityProfileService;
             _configService = configService;
             _approvedReleasesCache = cacheManager.GetCache<List<ReleaseInfo>>(GetType(), "approvedReleases");
+            _upgradableSpecification = upgradableSpecification;
             _logger = logger;
         }
 
@@ -200,8 +204,6 @@ namespace NzbDrone.Core.IndexerSearch
         private async Task<List<DownloadDecision>> CollectDecisionsWithEarlyReturn(List<Task<IList<ReleaseInfo>>> tasks, SearchCriteriaBase criteriaBase)
         {
             var minimumWait = TimeSpan.FromSeconds(_configService.EarlySearchReturnMinimumWait);
-            var timeout = TimeSpan.FromSeconds(_configService.EarlySearchReturnTimeout);
-            var scoreThreshold = _configService.EarlySearchReturnCustomFormatScore;
 
             var decisions = new List<DownloadDecision>();
             var pending = new List<Task>(tasks);
@@ -215,12 +217,21 @@ namespace NzbDrone.Core.IndexerSearch
             {
                 while (pending.Any())
                 {
-                    var remaining = (foundGoodRelease ? minimumWait : timeout) - stopwatch.Elapsed;
+                    Task completed;
 
-                    // Past the deadline, indexers that already answered are still read, only those still running are dropped
-                    var completed = remaining > TimeSpan.Zero
-                        ? await Task.WhenAny(pending.Append(Task.Delay(remaining, delayCancellation.Token)))
-                        : pending.FirstOrDefault(t => t.IsCompleted);
+                    if (!foundGoodRelease)
+                    {
+                        completed = await Task.WhenAny(pending);
+                    }
+                    else
+                    {
+                        var remaining = minimumWait - stopwatch.Elapsed;
+
+                        // Past the minimum wait, indexers that already answered are still read, only those still running are dropped
+                        completed = remaining > TimeSpan.Zero
+                            ? await Task.WhenAny(pending.Append(Task.Delay(remaining, delayCancellation.Token)))
+                            : pending.FirstOrDefault(t => t.IsCompleted);
+                    }
 
                     if (completed == null)
                     {
@@ -239,7 +250,7 @@ namespace NzbDrone.Core.IndexerSearch
                     reportCount += reports.Count;
 
                     decisions.AddRange(batchDecisions);
-                    foundGoodRelease = foundGoodRelease || batchDecisions.Any(d => d.Approved && d.RemoteMovie.CustomFormatScore >= scoreThreshold);
+                    foundGoodRelease = foundGoodRelease || batchDecisions.Any(d => IsGoodEnough(d, criteriaBase));
                 }
             }
             finally
@@ -262,6 +273,15 @@ namespace NzbDrone.Core.IndexerSearch
             }
 
             return decisions;
+        }
+
+        // Good enough means the movie would not be upgraded from this release once grabbed
+        private bool IsGoodEnough(DownloadDecision decision, SearchCriteriaBase criteriaBase)
+        {
+            return decision.Approved &&
+                   !_upgradableSpecification.CutoffNotMet(criteriaBase.Movie.QualityProfile,
+                       decision.RemoteMovie.ParsedMovieInfo.Quality,
+                       decision.RemoteMovie.CustomFormats);
         }
 
         private async Task<IList<ReleaseInfo>> DispatchIndexer(Func<IIndexer, Task<IList<ReleaseInfo>>> searchAction, IIndexer indexer, SearchCriteriaBase criteriaBase)
