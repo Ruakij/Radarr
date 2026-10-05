@@ -206,7 +206,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             cached.Should().NotBeNull();
             Titles(cached.Decisions).Should().BeEquivalentTo("A", "B");
-            cached.SearchTime.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromMinutes(1));
+            cached.SearchedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromMinutes(1));
             indexer.Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Once());
         }
 
