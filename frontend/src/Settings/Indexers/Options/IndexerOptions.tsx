@@ -161,6 +161,20 @@ function IndexerOptions({
             />
           </FormGroup>
 
+          <FormGroup>
+            <FormLabel>{translate('SearchResultCacheLifetime')}</FormLabel>
+
+            <FormInputGroup
+              type={inputTypes.NUMBER}
+              name="searchResultCacheLifetime"
+              min={0}
+              unit="minutes"
+              helpText={translate('SearchResultCacheLifetimeHelpText')}
+              onChange={handleInputChange}
+              {...settings.searchResultCacheLifetime}
+            />
+          </FormGroup>
+
           <FormGroup advancedSettings={showAdvancedSettings} isAdvanced={true}>
             <FormLabel>{translate('RssSyncInterval')}</FormLabel>
 

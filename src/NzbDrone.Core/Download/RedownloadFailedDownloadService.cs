@@ -48,7 +48,7 @@ namespace NzbDrone.Core.Download
             if (message.MovieId != 0)
             {
                 _logger.Debug("Failed download contains a movie, searching again.");
-                _commandQueueManager.Push(new MoviesSearchCommand { MovieIds = new List<int> { message.MovieId }, UseCachedReleases = true });
+                _commandQueueManager.Push(new MoviesSearchCommand { MovieIds = new List<int> { message.MovieId }, FallbackToIndexers = true });
             }
         }
     }

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using NLog;
-using NzbDrone.Common.Extensions;
 using NzbDrone.Common.Instrumentation.Extensions;
 using NzbDrone.Core.Datastore;
 using NzbDrone.Core.DecisionEngine;
@@ -46,7 +45,7 @@ namespace NzbDrone.Core.IndexerSearch
                 .Where(m => (m.Monitored && m.IsAvailable()) || userInvokedSearch)
                 .ToList();
 
-            SearchForBulkMovies(movies, userInvokedSearch, message.UseCachedReleases).GetAwaiter().GetResult();
+            SearchForBulkMovies(movies, userInvokedSearch, message.FallbackToIndexers).GetAwaiter().GetResult();
         }
 
         public void Execute(MissingMoviesSearchCommand message)
@@ -89,22 +88,25 @@ namespace NzbDrone.Core.IndexerSearch
             SearchForBulkMovies(missing, message.Trigger == CommandTrigger.Manual).GetAwaiter().GetResult();
         }
 
-        private async Task SearchForBulkMovies(List<Movie> movies, bool userInvokedSearch, bool useCachedReleases = false)
+        private async Task SearchForBulkMovies(List<Movie> movies, bool userInvokedSearch, bool fallbackToIndexers = false)
         {
             _logger.ProgressInfo("Performing search for {0} movies", movies.Count);
             var downloadedCount = 0;
 
             foreach (var movieId in movies.GroupBy(e => e.Id).OrderBy(g => g.Min(m => m.LastSearchTime ?? DateTime.MinValue)))
             {
-                if (useCachedReleases)
-                {
-                    var cachedGrabbed = await GrabCachedRelease(movieId.Key);
+                var cachedResult = await ProcessCachedSearch(movieId.Key, userInvokedSearch);
 
-                    if (cachedGrabbed.HasValue)
+                if (cachedResult != null)
+                {
+                    downloadedCount += cachedResult.Grabbed.Count;
+
+                    if (!fallbackToIndexers || cachedResult.Grabbed.Any() || cachedResult.Pending.Any())
                     {
-                        downloadedCount += cachedGrabbed.Value;
                         continue;
                     }
+
+                    _logger.Debug("No cached search result for movie [{0}] is acceptable anymore, searching indexers", movieId.Key);
                 }
 
                 List<DownloadDecision> decisions;
@@ -127,30 +129,17 @@ namespace NzbDrone.Core.IndexerSearch
             _logger.ProgressInfo("Completed search for {0} movies. {1} reports downloaded.", movies.Count, downloadedCount);
         }
 
-        private async Task<int?> GrabCachedRelease(int movieId)
+        private async Task<ProcessedDecisions> ProcessCachedSearch(int movieId, bool userInvokedSearch)
         {
             try
             {
-                var decisions = _releaseSearchService.CachedMovieSearch(movieId);
+                var cached = _releaseSearchService.CachedMovieSearch(movieId, userInvokedSearch, false);
 
-                if (decisions.Empty())
-                {
-                    return null;
-                }
-
-                var processDecisions = await _processDownloadDecisions.ProcessDecisions(decisions);
-
-                if (processDecisions.Grabbed.Any() || processDecisions.Pending.Any())
-                {
-                    _logger.Debug("Used cached search results for movie: [{0}]", movieId);
-                    return processDecisions.Grabbed.Count;
-                }
-
-                _logger.Debug("No cached search result for movie [{0}] is acceptable anymore, searching indexers", movieId);
+                return cached == null ? null : await _processDownloadDecisions.ProcessDecisions(cached.Decisions);
             }
             catch (Exception ex)
             {
-                _logger.Warn(ex, "Unable to grab cached search result for movie: [{0}], searching indexers", movieId);
+                _logger.Warn(ex, "Unable to use cached search results for movie: [{0}], searching indexers", movieId);
             }
 
             return null;

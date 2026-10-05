@@ -6603,6 +6603,14 @@
               "type": "integer",
               "format": "int32"
             }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
           }
         ],
         "responses": {
@@ -9849,6 +9857,10 @@
           "whitelistedHardcodedSubs": {
             "type": "string",
             "nullable": true
+          },
+          "searchResultCacheLifetime": {
+            "type": "integer",
+            "format": "int32"
           }
         },
         "additionalProperties": false
@@ -12359,6 +12371,11 @@
           },
           "shouldOverride": {
             "type": "boolean",
+            "nullable": true
+          },
+          "searchTime": {
+            "type": "string",
+            "format": "date-time",
             "nullable": true
           }
         },

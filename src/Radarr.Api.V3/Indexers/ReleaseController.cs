@@ -134,25 +134,29 @@ namespace Radarr.Api.V3.Indexers
 
         [HttpGet]
         [Produces("application/json")]
-        public async Task<Results<Ok<List<ReleaseResource>>, BadRequest>> GetReleases(int? movieId)
+        public async Task<Results<Ok<List<ReleaseResource>>, BadRequest>> GetReleases(int? movieId, bool refresh = false)
         {
             if (movieId.HasValue)
             {
-                return TypedResults.Ok(await GetMovieReleases(movieId.Value));
+                return TypedResults.Ok(await GetMovieReleases(movieId.Value, refresh));
             }
 
             return TypedResults.Ok(await GetRss());
         }
 
-        private async Task<List<ReleaseResource>> GetMovieReleases(int movieId)
+        private async Task<List<ReleaseResource>> GetMovieReleases(int movieId, bool refresh)
         {
             try
             {
-                var decisions = await _releaseSearchService.MovieSearch(movieId, true, true);
+                var cached = refresh ? null : _releaseSearchService.CachedMovieSearch(movieId, true, true);
+                var decisions = cached?.Decisions ?? await _releaseSearchService.MovieSearch(movieId, true, true);
                 var prioritizedDecisions = _prioritizeDownloadDecision.PrioritizeDecisionsForMovies(decisions);
                 var history = _historyService.FindByMovieId(movieId);
+                var releases = MapDecisions(prioritizedDecisions, history);
 
-                return MapDecisions(prioritizedDecisions, history);
+                releases.ForEach(r => r.SearchTime = cached?.SearchTime);
+
+                return releases;
             }
             catch (SearchFailedException ex)
             {
