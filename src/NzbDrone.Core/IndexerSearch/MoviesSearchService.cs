@@ -45,7 +45,8 @@ namespace NzbDrone.Core.IndexerSearch
                 .Where(m => (m.Monitored && m.IsAvailable()) || userInvokedSearch)
                 .ToList();
 
-            SearchForBulkMovies(movies, userInvokedSearch, message.FallbackToIndexers).GetAwaiter().GetResult();
+            // A search started by hand asks for fresh results, its results still refresh the cache
+            SearchForBulkMovies(movies, userInvokedSearch, !userInvokedSearch, message.FallbackToIndexers).GetAwaiter().GetResult();
         }
 
         public void Execute(MissingMoviesSearchCommand message)
@@ -65,7 +66,7 @@ namespace NzbDrone.Core.IndexerSearch
             var queue = _queueService.GetQueue().Where(q => q.Movie != null).Select(q => q.Movie.Id);
             var missing = movies.Where(e => !queue.Contains(e.Id)).ToList();
 
-            SearchForBulkMovies(missing, message.Trigger == CommandTrigger.Manual).GetAwaiter().GetResult();
+            SearchForBulkMovies(missing, message.Trigger == CommandTrigger.Manual, true).GetAwaiter().GetResult();
         }
 
         public void Execute(CutoffUnmetMoviesSearchCommand message)
@@ -85,17 +86,17 @@ namespace NzbDrone.Core.IndexerSearch
             var queue = _queueService.GetQueue().Where(q => q.Movie != null).Select(q => q.Movie.Id);
             var missing = movies.Where(e => !queue.Contains(e.Id)).ToList();
 
-            SearchForBulkMovies(missing, message.Trigger == CommandTrigger.Manual).GetAwaiter().GetResult();
+            SearchForBulkMovies(missing, message.Trigger == CommandTrigger.Manual, true).GetAwaiter().GetResult();
         }
 
-        private async Task SearchForBulkMovies(List<Movie> movies, bool userInvokedSearch, bool fallbackToIndexers = false)
+        private async Task SearchForBulkMovies(List<Movie> movies, bool userInvokedSearch, bool useCache, bool fallbackToIndexers = false)
         {
             _logger.ProgressInfo("Performing search for {0} movies", movies.Count);
             var downloadedCount = 0;
 
             foreach (var movieId in movies.GroupBy(e => e.Id).OrderBy(g => g.Min(m => m.LastSearchTime ?? DateTime.MinValue)))
             {
-                var cachedResult = await ProcessCachedSearch(movieId.Key, userInvokedSearch);
+                var cachedResult = useCache ? await ProcessCachedSearch(movieId.Key, userInvokedSearch) : null;
 
                 if (cachedResult != null)
                 {
