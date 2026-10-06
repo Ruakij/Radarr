@@ -24,6 +24,9 @@ namespace NzbDrone.Core.IndexerSearch.Definitions
         // Indexers swallow their errors to keep searching, so they report them here by indexer id
         public ConcurrentDictionary<int, Exception> IndexerFailures { get; } = new ConcurrentDictionary<int, Exception>();
 
+        // HTTP requests sent per indexer id, every page counts
+        public ConcurrentDictionary<int, int> IndexerRequestCounts { get; } = new ConcurrentDictionary<int, int>();
+
         public List<string> CleanSceneTitles => SceneTitles.Select(GetCleanSceneTitle).Distinct().ToList();
 
         public static string GetCleanSceneTitle(string title)

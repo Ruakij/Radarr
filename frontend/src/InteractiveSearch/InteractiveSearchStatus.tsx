@@ -109,7 +109,7 @@ function getAgeMinutes(date: string) {
 }
 
 // Setting names are marked with **...** in the translations
-function withBoldText(text: string) {
+function renderBold(text: string) {
   return text
     .split('**')
     .map((part, index) =>
@@ -118,22 +118,32 @@ function withBoldText(text: string) {
 }
 
 function getTimeTooltip(indexer: IndexerSearchStatus) {
-  if (
-    indexer.queryCount == null ||
-    indexer.medianResponseMs == null ||
-    indexer.historyCount == null
-  ) {
+  if (indexer.medianResponseMs == null) {
     return undefined;
   }
 
-  return translate('InteractiveSearchStatusTimeTooltip', {
-    queryCount: indexer.queryCount,
-    median: formatSeconds(indexer.medianResponseMs),
+  const queryCount = indexer.queryCount ?? 1;
+  const median = formatSeconds(indexer.medianResponseMs);
+  const tooltip =
+    queryCount === 1
+      ? translate('InteractiveSearchStatusTimeTooltipSingle', { median })
+      : translate('InteractiveSearchStatusTimeTooltipMultiple', {
+          queryCount,
+          median,
+        });
+
+  if (!indexer.historyCount) {
+    return tooltip;
+  }
+
+  const history = translate('InteractiveSearchStatusTimeTooltipHistory', {
     historyCount: indexer.historyCount,
     historyMedian: formatSeconds(indexer.historyMedianMs ?? 0),
     historyLow: formatSeconds(indexer.historyLowMs ?? 0),
     historyHigh: formatSeconds(indexer.historyHighMs ?? 0),
   });
+
+  return `${tooltip}. ${history}`;
 }
 
 interface InteractiveSearchStatusProps {
@@ -295,7 +305,7 @@ function InteractiveSearchStatus({
               {options?.earlySearchReturn &&
               options.searchIndexersInPriorityOrder ? (
                 <p>
-                  {withBoldText(
+                  {renderBold(
                     translate('InteractiveSearchStatusPriorityOrderNote')
                   )}
                 </p>
@@ -303,7 +313,7 @@ function InteractiveSearchStatus({
 
               {options?.earlySearchReturn ? (
                 <p>
-                  {withBoldText(
+                  {renderBold(
                     translate('InteractiveSearchStatusEarlySearchReturnNote')
                   )}
                 </p>
@@ -311,7 +321,7 @@ function InteractiveSearchStatus({
 
               {options?.searchResultCacheLifetime ? (
                 <p>
-                  {withBoldText(
+                  {renderBold(
                     translate('InteractiveSearchStatusCacheNote', {
                       minutes: options.searchResultCacheLifetime,
                     })
