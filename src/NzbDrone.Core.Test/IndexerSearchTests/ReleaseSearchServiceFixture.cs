@@ -541,7 +541,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             Statuses(first).Should().Equal(IndexerSearchStatusType.Searched, IndexerSearchStatusType.Skipped);
             first.Status.Indexers[0].ReleaseCount.Should().Be(1);
-            Subject.GetInteractiveSearchStatus(_movie.Id).Should().Be(first.Status);
+            Subject.GetInteractiveSearchStatus(_movie.Id).Should().BeEquivalentTo(first.Status, o => o.Excluding(s => s.Path.EndsWith("History")));
 
             var remaining = await Subject.InteractiveMovieSearch(_movie.Id, false, true);
 
@@ -572,6 +572,30 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         }
 
         [Test]
+        public async Task should_report_response_times_of_searched_and_failed_indexers()
+        {
+            Mocker.SetConstant<ICacheManager>(Mocker.Resolve<CacheManager>());
+            var indexers = GivenIndexers((100, "A", Quality.SDTV, 0), (0, "B", Quality.SDTV, 0));
+            Mock.Get(indexers[1]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new Exception("Indexer failed"));
+
+            await Subject.InteractiveMovieSearch(_movie.Id, false, false);
+            await Subject.InteractiveMovieSearch(_movie.Id, true, false);
+
+            var status = Subject.GetInteractiveSearchStatus(_movie.Id).Indexers.OrderBy(s => s.IndexerId).ToList();
+
+            status[0].QueryCount.Should().Be(1);
+            status[0].MedianResponseMs.Should().BeGreaterOrEqualTo(90);
+            status[0].History.Count.Should().Be(2);
+            status[0].History.LowMs.Should().BeGreaterOrEqualTo(90);
+
+            // Failed queries count for the search but not for the history
+            status[1].QueryCount.Should().Be(1);
+            status[1].MedianResponseMs.Should().NotBeNull();
+            status[1].History.Should().BeNull();
+            ExceptionVerification.ExpectedErrors(2);
+        }
+
+        [Test]
         public async Task should_report_cached_indexers()
         {
             var indexer = GivenCachedIndexer(1, "A", "B");
@@ -584,6 +608,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             Statuses(cached).Should().Equal(IndexerSearchStatusType.Cached);
             cached.Status.Indexers[0].ReleaseCount.Should().Be(2);
             cached.Status.CachedAt.Should().NotBeNull();
+            cached.Status.Indexers[0].CachedAt.Should().Be(cached.Status.CachedAt);
 
             var again = await Subject.InteractiveMovieSearch(_movie.Id, true, false);
 

@@ -20,7 +20,13 @@ namespace NzbDrone.Core.IndexerSearch
         TimedOut
     }
 
-    public record IndexerSearchStatus(int IndexerId, string Name, int Priority, IndexerSearchStatusType Status, int ReleaseCount, string Message);
+    // CachedAt is the search time of cached results, QueryCount and MedianResponseMs cover the queries of this search, failed ones included; History covers the last successful queries of all searches
+    public record IndexerSearchStatus(int IndexerId, string Name, int Priority, IndexerSearchStatusType Status, int ReleaseCount, string Message, DateTime? CachedAt = null, int? QueryCount = null, double? MedianResponseMs = null, IndexerResponseTimes History = null);
+
+    public record IndexerQueryTime(double DurationMs, bool Succeeded);
+
+    // Low and High bound the middle 95% of the response times
+    public record IndexerResponseTimes(int Count, double MedianMs, double LowMs, double HighMs);
 
     // CachedAt is the time of the cached results the search used, null when every indexer was searched
     public record InteractiveSearchStatus(DateTime? CachedAt, List<IndexerSearchStatus> Indexers);
