@@ -1,12 +1,14 @@
 using System.Collections.Generic;
 using FizzWare.NBuilder;
 using FluentAssertions;
+using Moq;
 using NUnit.Framework;
 using NzbDrone.Core.Datastore;
 using NzbDrone.Core.Indexers;
 using NzbDrone.Core.Indexers.FileList;
 using NzbDrone.Core.Indexers.Newznab;
 using NzbDrone.Core.Lifecycle;
+using NzbDrone.Core.Messaging.Events;
 using NzbDrone.Core.Test.Framework;
 using NzbDrone.Core.ThingiProvider.Events;
 using NzbDrone.Test.Common;
@@ -81,7 +83,6 @@ namespace NzbDrone.Core.Test.IndexerTests
             updated.Tags = new HashSet<int> { 5 };
 
             Subject.Update(updated);
-            Subject.Handle(new ProviderUpdatedEvent<IIndexer>(updated));
 
             Subject.Get(indexer.Id).Tags.Should().BeEquivalentTo(new[] { 5 });
         }
@@ -93,15 +94,33 @@ namespace NzbDrone.Core.Test.IndexerTests
             Subject.Find(1).Should().BeNull();
 
             var indexer = GivenStoredIndexer();
-            Subject.Handle(new ProviderAddedEvent<IIndexer>(indexer));
 
             Subject.Find(indexer.Id).Should().NotBeNull();
 
             Subject.Delete(indexer.Id);
-            Subject.Handle(new ProviderDeletedEvent<IIndexer>(indexer.Id));
 
             Subject.Find(indexer.Id).Should().BeNull();
             Assert.Throws<ModelNotFoundException>(() => Subject.Get(indexer.Id));
+        }
+
+        [Test]
+        public void should_return_changed_indexer_to_handlers_of_the_update_event()
+        {
+            GivenRealRepository();
+            var indexer = GivenStoredIndexer();
+
+            Subject.Get(indexer.Id).Tags.Should().BeEmpty();
+
+            HashSet<int> tagsSeenByHandler = null;
+
+            Mocker.GetMock<IEventAggregator>()
+                .Setup(s => s.PublishEvent(It.IsAny<ProviderUpdatedEvent<IIndexer>>()))
+                .Callback(() => tagsSeenByHandler = Subject.Get(indexer.Id).Tags);
+
+            indexer.Tags = new HashSet<int> { 5 };
+            Subject.Update(indexer);
+
+            tagsSeenByHandler.Should().BeEquivalentTo(new[] { 5 });
         }
     }
 }
