@@ -9865,6 +9865,10 @@
             "type": "integer",
             "format": "int32"
           },
+          "earlySearchReturnRequiredPriority": {
+            "type": "integer",
+            "format": "int32"
+          },
           "searchResultCacheLifetime": {
             "type": "integer",
             "format": "int32"
