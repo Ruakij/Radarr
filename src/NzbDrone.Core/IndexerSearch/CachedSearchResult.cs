@@ -7,8 +7,8 @@ namespace NzbDrone.Core.IndexerSearch
 {
     public record CachedSearchResult(List<DownloadDecision> Decisions, DateTime SearchedAt);
 
-    // IndexerIds are the indexers that answered without failing, a search returned early lacks the ones still pending
-    public record SearchResultCacheEntry(List<ReleaseInfo> Releases, HashSet<int> IndexerIds, DateTime SearchedAt);
+    // The answer of one indexer to one query, all pages included
+    public record IndexerQueryResult(List<ReleaseInfo> Releases, DateTime FetchedAt);
 
     public enum IndexerSearchStatusType
     {
@@ -20,7 +20,7 @@ namespace NzbDrone.Core.IndexerSearch
         TimedOut
     }
 
-    // CachedAt is the search time of cached results, QueryCount and MedianResponseMs cover the queries of this search, failed ones included; History covers the last successful queries of all searches
+    // CachedAt is the fetch time of cached results, QueryCount and MedianResponseMs cover the queries of this search, failed ones included; History covers the last successful queries of all searches
     public record IndexerSearchStatus(int IndexerId, string Name, int Priority, IndexerSearchStatusType Status, int ReleaseCount, string Message, DateTime? CachedAt = null, int? QueryCount = null, double? MedianResponseMs = null, IndexerResponseTimes History = null);
 
     public record IndexerQueryTime(double DurationMs, bool Succeeded);
@@ -28,11 +28,11 @@ namespace NzbDrone.Core.IndexerSearch
     // Low and High bound the middle 95% of the response times
     public record IndexerResponseTimes(int Count, double MedianMs, double LowMs, double HighMs);
 
-    // CachedAt is the time of the cached results the search used, null when every indexer was searched
+    // CachedAt is the time of the oldest cached results the search used, null when every indexer was searched
     public record InteractiveSearchStatus(DateTime? CachedAt, List<IndexerSearchStatus> Indexers);
 
     public record InteractiveSearchResult(List<DownloadDecision> Decisions, InteractiveSearchStatus Status);
 
-    // The releases are kept so the remaining indexers can be searched later and merged in, SearchedAt is the time of the oldest of them
-    public record InteractiveSearchEntry(List<ReleaseInfo> Releases, InteractiveSearchStatus Status, DateTime SearchedAt);
+    // The releases are kept so the remaining indexers can be searched later and merged in
+    public record InteractiveSearchEntry(List<ReleaseInfo> Releases, InteractiveSearchStatus Status);
 }

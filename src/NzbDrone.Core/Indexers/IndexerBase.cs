@@ -72,6 +72,11 @@ namespace NzbDrone.Core.Indexers
         public abstract Task<IList<ReleaseInfo>> Fetch(MovieSearchCriteria searchCriteria);
         public abstract HttpRequest GetDownloadRequest(string link);
 
+        public virtual string GetSearchQueryKey(MovieSearchCriteria searchCriteria)
+        {
+            return null;
+        }
+
         protected virtual IList<ReleaseInfo> CleanupReleases(IEnumerable<ReleaseInfo> releases)
         {
             var result = releases.DistinctBy(v => v.Guid).ToList();
