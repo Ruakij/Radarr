@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -41,6 +42,7 @@ namespace NzbDrone.Core.IndexerSearch
         private readonly ICached<SearchResultCacheEntry> _searchResultCache;
         private readonly ICached<InteractiveSearchEntry> _interactiveSearches;
         private readonly IUpgradableSpecification _upgradableSpecification;
+        private readonly IndexerResponseTimeHistory _responseTimes = new IndexerResponseTimeHistory();
         private readonly Logger _logger;
 
         public ReleaseSearchService(IIndexerFactory indexerFactory,
@@ -109,7 +111,9 @@ namespace NzbDrone.Core.IndexerSearch
                 searchedAt = cached.Entry.SearchedAt;
 
                 // Indexers missing from a cached search that covers the interactive search were skipped by searching in priority order
-                statuses = indexers.Select(i => GetStatus(i, cached.Entry.IndexerIds.Contains(i.Definition.Id) ? IndexerSearchStatusType.Cached : IndexerSearchStatusType.Skipped, releases)).ToList();
+                statuses = indexers.Select(i => cached.Entry.IndexerIds.Contains(i.Definition.Id)
+                    ? GetStatus(i, IndexerSearchStatusType.Cached, releases) with { CachedAt = cachedAt }
+                    : GetStatus(i, IndexerSearchStatusType.Skipped, releases)).ToList();
             }
             else if (previous != null)
             {
@@ -152,7 +156,9 @@ namespace NzbDrone.Core.IndexerSearch
 
         public InteractiveSearchStatus GetInteractiveSearchStatus(int movieId)
         {
-            return _interactiveSearches.Find(movieId.ToString())?.Status;
+            var status = _interactiveSearches.Find(movieId.ToString())?.Status;
+
+            return status == null ? null : status with { Indexers = status.Indexers.Select(s => s with { History = _responseTimes.Get(s.IndexerId) }).ToList() };
         }
 
         private CachedSearch FindCachedSearch(int movieId, bool userInvokedSearch, bool interactiveSearch)
@@ -311,6 +317,7 @@ namespace NzbDrone.Core.IndexerSearch
             var decisions = new List<DownloadDecision>();
             var reports = new List<ReleaseInfo>();
             var answeredIndexerIds = new HashSet<int>();
+            var queryTimes = new ConcurrentDictionary<int, ConcurrentQueue<IndexerQueryTime>>();
             var searchedGroups = 0;
 
             // Minimum Wait counts from the start of the search, not of each priority group
@@ -319,7 +326,7 @@ namespace NzbDrone.Core.IndexerSearch
             for (var i = 0; i < groups.Count; i++)
             {
                 var group = groups[i];
-                var tasks = group.Select(indexer => DispatchIndexer(indexer, criteriaBase)).ToList();
+                var tasks = group.Select(indexer => DispatchIndexer(indexer, criteriaBase, queryTimes)).ToList();
 
                 searchedGroups++;
                 List<DownloadDecision> groupDecisions;
@@ -373,14 +380,21 @@ namespace NzbDrone.Core.IndexerSearch
                     return GetStatus(indexer, IndexerSearchStatusType.NotWaitedFor, reports);
                 }
 
+                var times = queryTimes.TryGetValue(id, out var queue) ? queue.ToList() : new List<IndexerQueryTime>();
+                var status = GetStatus(indexer, IndexerSearchStatusType.Searched, reports) with
+                {
+                    QueryCount = times.Count > 0 ? times.Count : null,
+                    MedianResponseMs = times.Count > 0 ? IndexerResponseTimeHistory.Median(times.Select(t => t.DurationMs)) : null
+                };
+
                 if (criteriaBase.IndexerFailures.TryGetValue(id, out var failure))
                 {
                     var timedOut = failure is TaskCanceledException or TimeoutException or WebException { Status: WebExceptionStatus.Timeout };
 
-                    return GetStatus(indexer, timedOut ? IndexerSearchStatusType.TimedOut : IndexerSearchStatusType.Failed, reports, failure.Message);
+                    return status with { Status = timedOut ? IndexerSearchStatusType.TimedOut : IndexerSearchStatusType.Failed, Message = failure.Message };
                 }
 
-                return GetStatus(indexer, IndexerSearchStatusType.Searched, reports);
+                return status;
             })).ToList();
 
             return new DispatchResult(decisions, reports, statuses);
@@ -480,16 +494,32 @@ namespace NzbDrone.Core.IndexerSearch
                        decision.RemoteMovie.CustomFormats);
         }
 
-        private async Task<IList<ReleaseInfo>> DispatchIndexer(IIndexer indexer, MovieSearchCriteria criteriaBase)
+        private async Task<IList<ReleaseInfo>> DispatchIndexer(IIndexer indexer, MovieSearchCriteria criteriaBase, ConcurrentDictionary<int, ConcurrentQueue<IndexerQueryTime>> queryTimes)
         {
+            var id = indexer.Definition.Id;
+            var stopwatch = Stopwatch.StartNew();
+
             try
             {
                 return await indexer.Fetch(criteriaBase);
             }
             catch (Exception ex)
             {
-                criteriaBase.IndexerFailures.TryAdd(indexer.Definition.Id, ex);
+                criteriaBase.IndexerFailures.TryAdd(id, ex);
                 _logger.Error(ex, "Error while searching for {0}", criteriaBase);
+            }
+            finally
+            {
+                // Indexers report most failures instead of throwing them
+                var queryTime = new IndexerQueryTime(stopwatch.Elapsed.TotalMilliseconds, !criteriaBase.IndexerFailures.ContainsKey(id));
+
+                queryTimes.GetOrAdd(id, _ => new ConcurrentQueue<IndexerQueryTime>()).Enqueue(queryTime);
+
+                // Queries not waited for still finish and count for the history
+                if (queryTime.Succeeded)
+                {
+                    _responseTimes.Add(id, queryTime.DurationMs);
+                }
             }
 
             return Array.Empty<ReleaseInfo>();
