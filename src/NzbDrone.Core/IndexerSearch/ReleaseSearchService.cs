@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -89,7 +88,7 @@ namespace NzbDrone.Core.IndexerSearch
             }
 
             var searchSpec = Get<MovieSearchCriteria>(GetMovieWithTranslations(movieId), userInvokedSearch, interactiveSearch);
-            var cached = GetIndexers(searchSpec).Select(i => FindCachedQuery(GetQueryKey(i, searchSpec))).ToList();
+            var cached = GetIndexers(searchSpec).Select(i => GetQueryKey(i, searchSpec)).Where(k => k.HasQuery).Select(k => FindCachedQuery(k.Key)).ToList();
 
             // Served from the cache only when the search would not send a single query
             if (cached.Count == 0 || cached.Any(c => c == null))
@@ -155,25 +154,21 @@ namespace NzbDrone.Core.IndexerSearch
             return status == null ? null : status with { Indexers = status.Indexers.Select(s => s with { History = _responseTimes.Get(s.IndexerId) }).ToList() };
         }
 
-        // The key of an indexer query: the indexer and the requests it sends. Null leaves the query uncached
-        private string GetQueryKey(IIndexer indexer, MovieSearchCriteria criteriaBase)
+        // The key of an indexer query: the indexer and the requests it sends. A null key leaves the query uncached,
+        // an indexer without a query sends no request for the movie
+        private QueryKey GetQueryKey(IIndexer indexer, MovieSearchCriteria criteriaBase)
         {
-            if (_configService.SearchResultCacheLifetime <= 0)
-            {
-                return null;
-            }
-
             try
             {
                 var key = indexer.GetSearchQueryKey(criteriaBase);
 
-                return key == null ? null : $"{indexer.Definition.Id}:{key}";
+                return key == null ? new QueryKey(false, null) : new QueryKey(true, $"{indexer.Definition.Id}:{key}");
             }
             catch (Exception ex)
             {
                 // Building the requests can fail like sending them, the query is then sent and reports the failure
                 _logger.Debug(ex, "Unable to build the query of {0} for {1}", indexer.Definition.Name, criteriaBase);
-                return null;
+                return new QueryKey(true, null);
             }
         }
 
@@ -272,7 +267,12 @@ namespace NzbDrone.Core.IndexerSearch
 
         private async Task<DispatchResult> Dispatch(MovieSearchCriteria criteriaBase, List<List<IIndexer>> groups, bool useCache)
         {
-            var keys = groups.SelectMany(g => g).ToDictionary(i => i.Definition.Id, i => GetQueryKey(i, criteriaBase));
+            var queryKeys = groups.SelectMany(g => g).ToDictionary(i => i.Definition.Id, i => GetQueryKey(i, criteriaBase));
+
+            // Indexers that send no request for the movie are left out, they neither search nor show up in the status
+            groups = groups.Select(g => g.Where(i => queryKeys[i.Definition.Id].HasQuery).ToList()).Where(g => g.Any()).ToList();
+
+            var keys = groups.SelectMany(g => g).ToDictionary(i => i.Definition.Id, i => queryKeys[i.Definition.Id].Key);
 
             var cached = !useCache
                 ? new Dictionary<int, IndexerQueryResult>()
@@ -293,7 +293,6 @@ namespace NzbDrone.Core.IndexerSearch
             var decisions = new List<DownloadDecision>();
             var reports = new List<ReleaseInfo>();
             var answeredIndexerIds = new HashSet<int>();
-            var queryTimes = new ConcurrentDictionary<int, ConcurrentQueue<IndexerQueryTime>>();
             var searchedGroups = 0;
             var sentQueries = false;
 
@@ -322,7 +321,7 @@ namespace NzbDrone.Core.IndexerSearch
                     continue;
                 }
 
-                var tasks = groupToSearch.Select(indexer => DispatchIndexer(indexer, criteriaBase, keys[indexer.Definition.Id], queryTimes)).ToList();
+                var tasks = groupToSearch.Select(indexer => DispatchIndexer(indexer, criteriaBase, keys[indexer.Definition.Id])).ToList();
 
                 sentQueries = true;
 
@@ -377,11 +376,11 @@ namespace NzbDrone.Core.IndexerSearch
                     return GetStatus(indexer, IndexerSearchStatusType.NotWaitedFor, reports);
                 }
 
-                var times = queryTimes.TryGetValue(id, out var queue) ? queue.ToList() : new List<IndexerQueryTime>();
+                var durations = GetRequestDurations(criteriaBase, id);
                 var status = GetStatus(indexer, IndexerSearchStatusType.Searched, reports) with
                 {
-                    QueryCount = criteriaBase.IndexerRequestCounts.TryGetValue(id, out var requestCount) ? requestCount : null,
-                    MedianResponseMs = times.Count > 0 ? IndexerResponseTimeHistory.Median(times.Select(t => t.DurationMs)) : null
+                    QueryCount = durations.Count > 0 ? durations.Count : null,
+                    MedianResponseMs = durations.Count > 0 ? IndexerResponseTimeHistory.Median(durations) : null
                 };
 
                 if (criteriaBase.IndexerFailures.TryGetValue(id, out var failure))
@@ -406,6 +405,11 @@ namespace NzbDrone.Core.IndexerSearch
             answeredIndexerIds.UnionWith(cachedIndexers.Select(i => i.Definition.Id));
 
             return cachedReports.Any() ? _makeDownloadDecision.GetSearchDecision(cachedReports, criteriaBase) : new List<DownloadDecision>();
+        }
+
+        private static List<double> GetRequestDurations(SearchCriteriaBase criteriaBase, int indexerId)
+        {
+            return criteriaBase.IndexerRequestDurations.TryGetValue(indexerId, out var durations) ? durations.Select(d => d.TotalMilliseconds).ToList() : new List<double>();
         }
 
         private static IndexerSearchStatus GetStatus(IIndexer indexer, IndexerSearchStatusType status, List<ReleaseInfo> reports, string message = null)
@@ -502,7 +506,7 @@ namespace NzbDrone.Core.IndexerSearch
         }
 
         // A query Early Search Return stopped waiting for still finishes here and fills the cache for later searches
-        private async Task<IList<ReleaseInfo>> DispatchIndexer(IIndexer indexer, MovieSearchCriteria criteriaBase, string key, ConcurrentDictionary<int, ConcurrentQueue<IndexerQueryTime>> queryTimes)
+        private async Task<IList<ReleaseInfo>> DispatchIndexer(IIndexer indexer, MovieSearchCriteria criteriaBase, string key)
         {
             var id = indexer.Definition.Id;
             var stopwatch = Stopwatch.StartNew();
@@ -526,15 +530,16 @@ namespace NzbDrone.Core.IndexerSearch
             }
             finally
             {
-                // Indexers report most failures instead of throwing them
-                var queryTime = new IndexerQueryTime(stopwatch.Elapsed.TotalMilliseconds, !criteriaBase.IndexerFailures.ContainsKey(id));
-
-                queryTimes.GetOrAdd(id, _ => new ConcurrentQueue<IndexerQueryTime>()).Enqueue(queryTime);
-
-                // Queries not waited for still finish and count for the history
-                if (queryTime.Succeeded)
+                // Indexers that send no HTTP requests of their own count as one request per query
+                if (!criteriaBase.IndexerRequestDurations.ContainsKey(id))
                 {
-                    _responseTimes.Add(id, queryTime.DurationMs);
+                    criteriaBase.AddRequestDuration(id, stopwatch.Elapsed);
+                }
+
+                // Indexers report most failures instead of throwing them, queries not waited for still finish and count for the history
+                if (!criteriaBase.IndexerFailures.ContainsKey(id))
+                {
+                    GetRequestDurations(criteriaBase, id).ForEach(d => _responseTimes.Add(id, d));
                 }
             }
 
@@ -548,6 +553,8 @@ namespace NzbDrone.Core.IndexerSearch
                 .Select(d => d.OrderBy(v => v.Rejections.Count()).ThenBy(v => v.RemoteMovie?.Release?.IndexerPriority ?? IndexerDefinition.DefaultPriority).First())
                 .ToList();
         }
+
+        private record QueryKey(bool HasQuery, string Key);
 
         private record DispatchResult(List<DownloadDecision> Decisions, List<ReleaseInfo> Reports, List<IndexerSearchStatus> Statuses);
     }

@@ -86,6 +86,7 @@ namespace NzbDrone.Core.Test.IndexerTests.NewznabTests
 
             releases.Should().BeEmpty();
             criteria.IndexerFailures[5].Should().BeOfType<WebException>();
+            criteria.IndexerRequestDurations[5].Should().HaveCount(1);
         }
 
         public void should_use_best_pagesize_reported_by_caps()

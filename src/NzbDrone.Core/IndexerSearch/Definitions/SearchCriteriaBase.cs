@@ -24,8 +24,13 @@ namespace NzbDrone.Core.IndexerSearch.Definitions
         // Indexers swallow their errors to keep searching, so they report them here by indexer id
         public ConcurrentDictionary<int, Exception> IndexerFailures { get; } = new ConcurrentDictionary<int, Exception>();
 
-        // HTTP requests sent per indexer id, every page counts
-        public ConcurrentDictionary<int, int> IndexerRequestCounts { get; } = new ConcurrentDictionary<int, int>();
+        // Duration of every request sent per indexer id, every page counts, failed requests included
+        public ConcurrentDictionary<int, ConcurrentQueue<TimeSpan>> IndexerRequestDurations { get; } = new ConcurrentDictionary<int, ConcurrentQueue<TimeSpan>>();
+
+        public void AddRequestDuration(int indexerId, TimeSpan duration)
+        {
+            IndexerRequestDurations.GetOrAdd(indexerId, _ => new ConcurrentQueue<TimeSpan>()).Enqueue(duration);
+        }
 
         public List<string> CleanSceneTitles => SceneTitles.Select(GetCleanSceneTitle).Distinct().ToList();
 
