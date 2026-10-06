@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using FizzWare.NBuilder;
@@ -504,6 +505,73 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchIndexersInPriorityOrder).Returns(false);
 
             Subject.CachedMovieSearch(_movie.Id, true, true).Should().BeNull();
+        }
+
+        private static List<IndexerSearchStatusType> Statuses(InteractiveSearchResult result)
+        {
+            return result.Status.Indexers.OrderBy(s => s.IndexerId).Select(s => s.Status).ToList();
+        }
+
+        [Test]
+        public async Task should_report_skipped_indexers_and_search_them_when_searching_remaining()
+        {
+            Mocker.SetConstant<ICacheManager>(Mocker.Resolve<CacheManager>());
+            GivenEarlySearchReturn(0);
+            var indexers = GivenPriorityGroups((1, "Good", Quality.Bluray1080p, 10), (2, "Lower", Quality.SDTV, 0));
+
+            var first = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
+
+            Statuses(first).Should().Equal(IndexerSearchStatusType.Searched, IndexerSearchStatusType.Skipped);
+            first.Status.Indexers[0].ReleaseCount.Should().Be(1);
+            Subject.GetInteractiveSearchStatus(_movie.Id).Should().Be(first.Status);
+
+            var remaining = await Subject.InteractiveMovieSearch(_movie.Id, false, true);
+
+            Titles(remaining.Decisions).Should().BeEquivalentTo("Good", "Lower");
+            Statuses(remaining).Should().Equal(IndexerSearchStatusType.Searched, IndexerSearchStatusType.Searched);
+            Mock.Get(indexers[0]).Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Once());
+            Mock.Get(indexers[1]).Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Once());
+        }
+
+        [Test]
+        public async Task should_report_failed_and_timed_out_indexers_and_search_them_again_when_searching_remaining()
+        {
+            Mocker.SetConstant<ICacheManager>(Mocker.Resolve<CacheManager>());
+            var indexers = GivenIndexers((0, "A", Quality.SDTV, 0), (0, "B", Quality.SDTV, 0), (0, "C", Quality.SDTV, 0));
+            Mock.Get(indexers[1]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new Exception("Indexer failed"));
+            Mock.Get(indexers[2]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new WebException("Http request timed out", WebExceptionStatus.Timeout));
+
+            var first = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
+
+            Statuses(first).Should().Equal(IndexerSearchStatusType.Searched, IndexerSearchStatusType.Failed, IndexerSearchStatusType.TimedOut);
+            first.Status.Indexers.Single(s => s.IndexerId == 2).Message.Should().Be("Indexer failed");
+
+            await Subject.InteractiveMovieSearch(_movie.Id, false, true);
+
+            Mock.Get(indexers[0]).Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Once());
+            Mock.Get(indexers[1]).Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Exactly(2));
+            ExceptionVerification.ExpectedErrors(4);
+        }
+
+        [Test]
+        public async Task should_report_cached_indexers()
+        {
+            var indexer = GivenCachedIndexer(1, "A", "B");
+            GivenSearchResultCache(new List<Mock<IIndexer>> { indexer }, new List<Mock<IIndexer>> { indexer });
+
+            await Subject.InteractiveMovieSearch(_movie.Id, false, false);
+            var cached = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
+
+            Titles(cached.Decisions).Should().BeEquivalentTo("A", "B");
+            Statuses(cached).Should().Equal(IndexerSearchStatusType.Cached);
+            cached.Status.Indexers[0].ReleaseCount.Should().Be(2);
+            cached.Status.CachedAt.Should().NotBeNull();
+
+            var again = await Subject.InteractiveMovieSearch(_movie.Id, true, false);
+
+            Statuses(again).Should().Equal(IndexerSearchStatusType.Searched);
+            again.Status.CachedAt.Should().BeNull();
+            indexer.Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Exactly(2));
         }
 
         [Test]

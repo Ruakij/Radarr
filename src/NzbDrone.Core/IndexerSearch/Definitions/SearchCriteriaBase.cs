@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -18,6 +20,9 @@ namespace NzbDrone.Core.IndexerSearch.Definitions
         public virtual bool MonitoredEpisodesOnly { get; set; }
         public virtual bool UserInvokedSearch { get; set; }
         public virtual bool InteractiveSearch { get; set; }
+
+        // Indexers swallow their errors to keep searching, so they report them here by indexer id
+        public ConcurrentDictionary<int, Exception> IndexerFailures { get; } = new ConcurrentDictionary<int, Exception>();
 
         public List<string> CleanSceneTitles => SceneTitles.Select(GetCleanSceneTitle).Distinct().ToList();
 
