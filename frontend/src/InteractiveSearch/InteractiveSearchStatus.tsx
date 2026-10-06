@@ -1,4 +1,6 @@
 import React, { useEffect } from 'react';
+import Icon from 'Components/Icon';
+import Label, { LabelProps } from 'Components/Label';
 import Button from 'Components/Link/Button';
 import TableRowCell from 'Components/Table/Cells/TableRowCell';
 import Column from 'Components/Table/Column';
@@ -7,7 +9,7 @@ import TableBody from 'Components/Table/TableBody';
 import TableRow from 'Components/Table/TableRow';
 import Popover from 'Components/Tooltip/Popover';
 import useApiQuery from 'Helpers/Hooks/useApiQuery';
-import { sizes, tooltipPositions } from 'Helpers/Props';
+import { icons, kinds, sizes, tooltipPositions } from 'Helpers/Props';
 import IndexerOptions from 'typings/Settings/IndexerOptions';
 import translate from 'Utilities/String/translate';
 import InteractiveSearchPayload from './InteractiveSearchPayload';
@@ -28,6 +30,13 @@ interface IndexerSearchStatus {
   status: IndexerSearchStatusType;
   releaseCount: number;
   message?: string;
+  cachedAt?: string;
+  queryCount?: number;
+  medianResponseMs?: number;
+  historyCount?: number;
+  historyMedianMs?: number;
+  historyLowMs?: number;
+  historyHighMs?: number;
 }
 
 interface ReleaseSearchStatus {
@@ -42,6 +51,15 @@ const statusLabelKeys: Record<IndexerSearchStatusType, string> = {
   notWaitedFor: 'IndexerSearchStatusNotWaitedFor',
   failed: 'IndexerSearchStatusFailed',
   timedOut: 'IndexerSearchStatusTimedOut',
+};
+
+const statusKinds: Record<IndexerSearchStatusType, LabelProps['kind']> = {
+  searched: kinds.SUCCESS,
+  cached: kinds.INFO,
+  skipped: kinds.DEFAULT,
+  notWaitedFor: kinds.WARNING,
+  failed: kinds.DANGER,
+  timedOut: kinds.DANGER,
 };
 
 const remainingStatuses: IndexerSearchStatusType[] = [
@@ -60,6 +78,7 @@ const columns: Column[] = [
   {
     name: 'priority',
     label: () => translate('Priority'),
+    className: styles.numberHeader,
     isVisible: true,
   },
   {
@@ -70,9 +89,52 @@ const columns: Column[] = [
   {
     name: 'releaseCount',
     label: () => translate('Results'),
+    className: styles.numberHeader,
+    isVisible: true,
+  },
+  {
+    name: 'time',
+    label: () => translate('InteractiveSearchStatusTime'),
+    className: styles.numberHeader,
     isVisible: true,
   },
 ];
+
+function formatSeconds(ms: number) {
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+function getAgeMinutes(date: string) {
+  return Math.round((Date.now() - new Date(date).getTime()) / 60000);
+}
+
+// Setting names are marked with **...** in the translations
+function withBoldText(text: string) {
+  return text
+    .split('**')
+    .map((part, index) =>
+      index % 2 ? <strong key={index}>{part}</strong> : part
+    );
+}
+
+function getTimeTooltip(indexer: IndexerSearchStatus) {
+  if (
+    indexer.queryCount == null ||
+    indexer.medianResponseMs == null ||
+    indexer.historyCount == null
+  ) {
+    return undefined;
+  }
+
+  return translate('InteractiveSearchStatusTimeTooltip', {
+    queryCount: indexer.queryCount,
+    median: formatSeconds(indexer.medianResponseMs),
+    historyCount: indexer.historyCount,
+    historyMedian: formatSeconds(indexer.historyMedianMs ?? 0),
+    historyLow: formatSeconds(indexer.historyLowMs ?? 0),
+    historyHigh: formatSeconds(indexer.historyHighMs ?? 0),
+  });
+}
 
 interface InteractiveSearchStatusProps {
   searchPayload: InteractiveSearchPayload;
@@ -107,23 +169,37 @@ function InteractiveSearchStatus({
   const delivered = indexers.filter(
     (i) => i.status === 'searched' || i.status === 'cached'
   );
-  const cachedCount = indexers.filter((i) => i.status === 'cached').length;
+  const cachedAges = indexers
+    .filter((i) => i.status === 'cached' && i.cachedAt)
+    .map((i) => getAgeMinutes(i.cachedAt as string));
   const hasRemaining = indexers.some((i) =>
     remainingStatuses.includes(i.status)
   );
+  const hasFailed = indexers.some(
+    (i) => i.status === 'failed' || i.status === 'timedOut'
+  );
+
+  // Indexers up to the required priority are always waited for and searched first
+  const requiredPriority = options?.earlySearchReturn
+    ? options.earlySearchReturnRequiredPriority
+    : 0;
+  const getGroup = (indexer: IndexerSearchStatus) =>
+    options?.earlySearchReturn && options.searchIndexersInPriorityOrder
+      ? Math.max(indexer.priority, requiredPriority)
+      : 0;
 
   let summary = translate('InteractiveSearchStatusSummary', {
     searched: delivered.length,
     total: indexers.length,
   });
 
-  if (cachedCount && data?.cachedAt) {
-    const minutes = Math.round(
-      (Date.now() - new Date(data.cachedAt).getTime()) / 60000
-    );
+  if (cachedAges.length) {
+    const minAge = Math.min(...cachedAges);
+    const maxAge = Math.max(...cachedAges);
+    const minutes = minAge === maxAge ? `${minAge}` : `${minAge}-${maxAge}`;
 
     const cacheText = translate(
-      cachedCount === delivered.length
+      cachedAges.length === delivered.length
         ? 'InteractiveSearchStatusFromCache'
         : 'InteractiveSearchStatusPartlyFromCache',
       { minutes }
@@ -136,26 +212,81 @@ function InteractiveSearchStatus({
     <>
       {indexers.length ? (
         <Popover
-          anchor={<span className={styles.summary}>{summary}</span>}
+          anchor={
+            <span>
+              {hasFailed ? (
+                <Icon
+                  className={styles.statusIcon}
+                  name={icons.WARNING}
+                  kind={kinds.DANGER}
+                />
+              ) : null}
+              {!hasFailed && cachedAges.length ? (
+                <Icon className={styles.statusIcon} name={icons.HISTORY} />
+              ) : null}
+              <span className={styles.summary}>{summary}</span>
+            </span>
+          }
           title={translate('InteractiveSearchStatus')}
           position={tooltipPositions.BOTTOM}
           body={
             <div className={styles.body}>
               <Table columns={columns}>
                 <TableBody>
-                  {indexers.map((indexer) => (
-                    <TableRow key={indexer.indexerId}>
+                  {indexers.map((indexer, index) => (
+                    <TableRow
+                      key={indexer.indexerId}
+                      className={
+                        index &&
+                        getGroup(indexer) !== getGroup(indexers[index - 1])
+                          ? styles.groupStart
+                          : undefined
+                      }
+                    >
                       <TableRowCell>{indexer.name}</TableRowCell>
-                      <TableRowCell>{indexer.priority}</TableRowCell>
+                      <TableRowCell className={styles.number}>
+                        {requiredPriority > 0 &&
+                        indexer.priority <= requiredPriority ? (
+                          <Label className={styles.required}>
+                            {translate('Required')}
+                          </Label>
+                        ) : null}
+                        {indexer.priority}
+                      </TableRowCell>
                       <TableRowCell>
-                        {translate(statusLabelKeys[indexer.status])}
+                        <Label kind={statusKinds[indexer.status]}>
+                          {translate(statusLabelKeys[indexer.status])}
+                        </Label>
+                        {indexer.status === 'cached' && indexer.cachedAt ? (
+                          <span
+                            className={styles.age}
+                            title={new Date(indexer.cachedAt).toLocaleString()}
+                          >
+                            {translate('InteractiveSearchStatusCacheAge', {
+                              minutes: getAgeMinutes(indexer.cachedAt),
+                            })}
+                          </span>
+                        ) : null}
                         {indexer.message ? (
                           <div className={styles.message}>
                             {indexer.message}
                           </div>
                         ) : null}
                       </TableRowCell>
-                      <TableRowCell>{indexer.releaseCount}</TableRowCell>
+                      <TableRowCell className={styles.number}>
+                        {indexer.releaseCount}
+                      </TableRowCell>
+                      <TableRowCell
+                        className={styles.number}
+                        title={getTimeTooltip(indexer)}
+                      >
+                        {indexer.medianResponseMs == null
+                          ? null
+                          : formatSeconds(indexer.medianResponseMs)}
+                        {(indexer.queryCount ?? 0) > 1
+                          ? ` (${indexer.queryCount})`
+                          : null}
+                      </TableRowCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -163,20 +294,28 @@ function InteractiveSearchStatus({
 
               {options?.earlySearchReturn &&
               options.searchIndexersInPriorityOrder ? (
-                <p>{translate('InteractiveSearchStatusPriorityOrderNote')}</p>
+                <p>
+                  {withBoldText(
+                    translate('InteractiveSearchStatusPriorityOrderNote')
+                  )}
+                </p>
               ) : null}
 
               {options?.earlySearchReturn ? (
                 <p>
-                  {translate('InteractiveSearchStatusEarlySearchReturnNote')}
+                  {withBoldText(
+                    translate('InteractiveSearchStatusEarlySearchReturnNote')
+                  )}
                 </p>
               ) : null}
 
               {options?.searchResultCacheLifetime ? (
                 <p>
-                  {translate('InteractiveSearchStatusCacheNote', {
-                    minutes: options.searchResultCacheLifetime,
-                  })}
+                  {withBoldText(
+                    translate('InteractiveSearchStatusCacheNote', {
+                      minutes: options.searchResultCacheLifetime,
+                    })
+                  )}
                 </p>
               ) : null}
             </div>
@@ -188,6 +327,7 @@ function InteractiveSearchStatus({
         <Button
           size={sizes.SMALL}
           isDisabled={isFetching}
+          title={translate('InteractiveSearchSearchRemainingTooltip')}
           onPress={onSearchRemainingPress}
         >
           {translate('SearchRemainingIndexers')}
@@ -197,6 +337,7 @@ function InteractiveSearchStatus({
       <Button
         size={sizes.SMALL}
         isDisabled={isFetching}
+        title={translate('InteractiveSearchSearchAgainTooltip')}
         onPress={onSearchAgainPress}
       >
         {translate('SearchAgain')}
