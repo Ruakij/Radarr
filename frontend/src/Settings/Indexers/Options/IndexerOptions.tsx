@@ -249,6 +249,19 @@ function IndexerOptions({
           </FormGroup>
 
           <FormGroup advancedSettings={showAdvancedSettings} isAdvanced={true}>
+            <FormLabel>{translate('SearchConcurrency')}</FormLabel>
+
+            <FormInputGroup
+              type={inputTypes.NUMBER}
+              name="searchConcurrency"
+              min={1}
+              helpText={translate('SearchConcurrencyHelpText')}
+              onChange={handleInputChange}
+              {...settings.searchConcurrency}
+            />
+          </FormGroup>
+
+          <FormGroup advancedSettings={showAdvancedSettings} isAdvanced={true}>
             <FormLabel>{translate('WhitelistedSubtitleTags')}</FormLabel>
 
             <FormInputGroup
