@@ -307,6 +307,9 @@ namespace NzbDrone.Core.IndexerSearch
             var answeredIndexerIds = new HashSet<int>();
             var searchedGroups = 0;
 
+            // Minimum Wait counts from the start of the search, not of each priority group
+            var stopwatch = Stopwatch.StartNew();
+
             for (var i = 0; i < groups.Count; i++)
             {
                 var group = groups[i];
@@ -317,7 +320,7 @@ namespace NzbDrone.Core.IndexerSearch
 
                 if (_configService.EarlySearchReturn && !criteriaBase.InteractiveSearch)
                 {
-                    groupDecisions = await CollectDecisionsWithEarlyReturn(group, tasks, criteriaBase, reports, answeredIndexerIds);
+                    groupDecisions = await CollectDecisionsWithEarlyReturn(group, tasks, criteriaBase, reports, answeredIndexerIds, stopwatch);
                 }
                 else
                 {
@@ -384,7 +387,7 @@ namespace NzbDrone.Core.IndexerSearch
             return new IndexerSearchStatus(id, indexer.Definition.Name, ((IndexerDefinition)indexer.Definition).Priority, status, reports.Count(r => r.IndexerId == id), message);
         }
 
-        private async Task<List<DownloadDecision>> CollectDecisionsWithEarlyReturn(List<IIndexer> indexers, List<Task<IList<ReleaseInfo>>> tasks, SearchCriteriaBase criteriaBase, List<ReleaseInfo> allReports, HashSet<int> answeredIndexerIds)
+        private async Task<List<DownloadDecision>> CollectDecisionsWithEarlyReturn(List<IIndexer> indexers, List<Task<IList<ReleaseInfo>>> tasks, SearchCriteriaBase criteriaBase, List<ReleaseInfo> allReports, HashSet<int> answeredIndexerIds, Stopwatch stopwatch)
         {
             var minimumWait = TimeSpan.FromSeconds(_configService.EarlySearchReturnMinimumWait);
             var requiredPriority = _configService.EarlySearchReturnRequiredPriority;
@@ -395,7 +398,6 @@ namespace NzbDrone.Core.IndexerSearch
             var decisions = new List<DownloadDecision>();
             var pending = new List<Task>(tasks);
             var foundGoodRelease = false;
-            var stopwatch = Stopwatch.StartNew();
 
             using var delayCancellation = new CancellationTokenSource();
 
