@@ -586,7 +586,7 @@
   "Downloading": "Downloading",
   "Duration": "Duration",
   "EarlySearchReturn": "Early Search Return",
-  "EarlySearchReturnHelpText": "Automatic searches stop waiting for slow indexers once a release has been found that meets the quality profile cutoff and cutoff format score. Interactive searches always wait for all indexers",
+  "EarlySearchReturnHelpText": "Automatic searches stop waiting for slow indexers once a release has been found that meets the quality profile cutoff and cutoff format score. Interactive searches never return early within a priority group, but with Search Indexers in Priority Order they stop after the first group that found a good enough release",
   "EarlySearchReturnMinimumWait": "Early Search Return Minimum Wait",
   "EarlySearchReturnMinimumWaitHelpText": "Minimum time since the search started before returning early, indexers answering within it may still deliver a better release",
   "EarlySearchReturnRequiredPriority": "Early Search Return Required Priority",
