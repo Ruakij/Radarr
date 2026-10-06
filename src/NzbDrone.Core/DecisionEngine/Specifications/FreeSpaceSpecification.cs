@@ -37,7 +37,7 @@ namespace NzbDrone.Core.DecisionEngine.Specifications
 
             try
             {
-                freeSpace = _diskProvider.GetAvailableSpace(path);
+                freeSpace = DecisionRunCache.Get($"freeSpace:{path}", () => _diskProvider.GetAvailableSpace(path));
             }
             catch (DirectoryNotFoundException)
             {

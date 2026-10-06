@@ -5,6 +5,7 @@ using NUnit.Framework;
 using NzbDrone.Common.Disk;
 using NzbDrone.Common.Extensions;
 using NzbDrone.Core.Configuration;
+using NzbDrone.Core.DecisionEngine;
 using NzbDrone.Core.DecisionEngine.Specifications;
 using NzbDrone.Core.Movies;
 using NzbDrone.Core.Parser.Model;
@@ -101,6 +102,31 @@ namespace NzbDrone.Core.Test.DecisionEngineTests
             Mocker.GetMock<IDiskProvider>().Setup(s => s.GetAvailableSpace(It.IsAny<string>())).Throws<DirectoryNotFoundException>();
 
             Subject.IsSatisfiedBy(_remoteMovie, new()).Accepted.Should().BeTrue();
+        }
+
+        [Test]
+        public void should_read_free_space_once_per_decision_run_and_again_in_the_next_run()
+        {
+            WithMinimumFreeSpace(0);
+            WithAvailableSpace(200);
+            WithSize(100);
+
+            using (DecisionRunCache.Begin())
+            {
+                Subject.IsSatisfiedBy(_remoteMovie, new()).Accepted.Should().BeTrue();
+                Subject.IsSatisfiedBy(_remoteMovie, new()).Accepted.Should().BeTrue();
+            }
+
+            Mocker.GetMock<IDiskProvider>().Verify(v => v.GetAvailableSpace(It.IsAny<string>()), Times.Once());
+
+            WithAvailableSpace(50);
+
+            using (DecisionRunCache.Begin())
+            {
+                Subject.IsSatisfiedBy(_remoteMovie, new()).Accepted.Should().BeFalse();
+            }
+
+            Mocker.GetMock<IDiskProvider>().Verify(v => v.GetAvailableSpace(It.IsAny<string>()), Times.Exactly(2));
         }
     }
 }

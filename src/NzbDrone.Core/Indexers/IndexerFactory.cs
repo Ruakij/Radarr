@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using FluentValidation.Results;
 using NLog;
+using NzbDrone.Core.Datastore;
 using NzbDrone.Core.Messaging.Events;
 using NzbDrone.Core.ThingiProvider;
+using NzbDrone.Core.ThingiProvider.Events;
 
 namespace NzbDrone.Core.Indexers
 {
@@ -16,11 +18,16 @@ namespace NzbDrone.Core.Indexers
         IndexerDefinition FindByName(string name);
     }
 
-    public class IndexerFactory : ProviderFactory<IIndexer, IndexerDefinition>, IIndexerFactory
+    public class IndexerFactory : ProviderFactory<IIndexer, IndexerDefinition>, IIndexerFactory,
+        IHandle<ProviderAddedEvent<IIndexer>>, IHandle<ProviderUpdatedEvent<IIndexer>>, IHandle<ProviderDeletedEvent<IIndexer>>
     {
         private readonly IIndexerRepository _indexerRepository;
         private readonly IIndexerStatusService _indexerStatusService;
         private readonly Logger _logger;
+
+        // Decision engine specifications look up the indexer of every release, so the decoded definitions are kept until an indexer changes.
+        private readonly object _definitionsLock = new();
+        private Dictionary<int, IndexerDefinition> _definitions;
 
         public IndexerFactory(IIndexerStatusService indexerStatusService,
                               IIndexerRepository providerRepository,
@@ -33,6 +40,50 @@ namespace NzbDrone.Core.Indexers
             _indexerRepository = providerRepository;
             _indexerStatusService = indexerStatusService;
             _logger = logger;
+        }
+
+        public override IndexerDefinition Get(int id)
+        {
+            return Find(id) ?? throw new ModelNotFoundException(typeof(IndexerDefinition), id);
+        }
+
+        public override IndexerDefinition Find(int id)
+        {
+            lock (_definitionsLock)
+            {
+                _definitions ??= _indexerRepository.All().ToDictionary(d => d.Id);
+
+                return _definitions.GetValueOrDefault(id);
+            }
+        }
+
+        public void Handle(ProviderAddedEvent<IIndexer> message)
+        {
+            ClearDefinitions();
+        }
+
+        public void Handle(ProviderUpdatedEvent<IIndexer> message)
+        {
+            ClearDefinitions();
+        }
+
+        public void Handle(ProviderDeletedEvent<IIndexer> message)
+        {
+            ClearDefinitions();
+        }
+
+        // Runs at startup after definitions without an implementation were deleted without events.
+        protected override void InitializeProviders()
+        {
+            ClearDefinitions();
+        }
+
+        private void ClearDefinitions()
+        {
+            lock (_definitionsLock)
+            {
+                _definitions = null;
+            }
         }
 
         protected override List<IndexerDefinition> Active()
