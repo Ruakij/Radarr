@@ -4,14 +4,13 @@ import ClientSideCollectionAppState from 'App/State/ClientSideCollectionAppState
 import ReleasesAppState from 'App/State/ReleasesAppState';
 import Alert from 'Components/Alert';
 import Icon from 'Components/Icon';
-import Button from 'Components/Link/Button';
 import LoadingIndicator from 'Components/Loading/LoadingIndicator';
 import FilterMenu from 'Components/Menu/FilterMenu';
 import PageMenuButton from 'Components/Menu/PageMenuButton';
 import Column from 'Components/Table/Column';
 import Table from 'Components/Table/Table';
 import TableBody from 'Components/Table/TableBody';
-import { align, icons, kinds, sizes, sortDirections } from 'Helpers/Props';
+import { align, icons, kinds, sortDirections } from 'Helpers/Props';
 import { SortDirection } from 'Helpers/Props/sortDirections';
 import {
   fetchReleases,
@@ -25,6 +24,7 @@ import translate from 'Utilities/String/translate';
 import InteractiveSearchFilterModal from './InteractiveSearchFilterModal';
 import InteractiveSearchPayload from './InteractiveSearchPayload';
 import InteractiveSearchRow from './InteractiveSearchRow';
+import InteractiveSearchStatus from './InteractiveSearchStatus';
 import styles from './InteractiveSearch.css';
 
 const columns: Column[] = [
@@ -179,29 +179,21 @@ function InteractiveSearch({ searchPayload }: InteractiveSearchProps) {
     dispatch(fetchReleases({ ...searchPayload, refresh: true }));
   }, [dispatch, searchPayload]);
 
+  const handleSearchRemainingPress = useCallback(() => {
+    dispatch(fetchReleases({ ...searchPayload, searchRemaining: true }));
+  }, [dispatch, searchPayload]);
+
   const errorMessage = getErrorMessage(error);
-  const cachedAt = isFetching ? undefined : items[0]?.cachedAt;
 
   return (
     <div>
       <div className={styles.filterMenuContainer}>
-        {cachedAt ? (
-          <span>
-            {translate('SearchResultsCachedMinutesAgo', {
-              minutes: Math.round(
-                (Date.now() - new Date(cachedAt).getTime()) / 60000
-              ),
-            })}
-          </span>
-        ) : null}
-
-        <Button
-          size={sizes.SMALL}
-          isDisabled={isFetching}
-          onPress={handleSearchAgainPress}
-        >
-          {translate('SearchAgain')}
-        </Button>
+        <InteractiveSearchStatus
+          searchPayload={searchPayload}
+          isFetching={isFetching}
+          onSearchRemainingPress={handleSearchRemainingPress}
+          onSearchAgainPress={handleSearchAgainPress}
+        />
 
         <FilterMenu
           alignMenu={align.RIGHT}
