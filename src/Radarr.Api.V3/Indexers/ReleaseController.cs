@@ -132,27 +132,35 @@ namespace Radarr.Api.V3.Indexers
 
         [HttpGet]
         [Produces("application/json")]
-        public async Task<List<ReleaseResource>> GetReleases(int? movieId, bool refresh = false)
+        public async Task<List<ReleaseResource>> GetReleases(int? movieId, bool refresh = false, bool searchRemaining = false)
         {
             if (movieId.HasValue)
             {
-                return await GetMovieReleases(movieId.Value, refresh);
+                return await GetMovieReleases(movieId.Value, refresh, searchRemaining);
             }
 
             return await GetRss();
         }
 
-        private async Task<List<ReleaseResource>> GetMovieReleases(int movieId, bool refresh)
+        [HttpGet("searchstatus")]
+        [Produces("application/json")]
+        public ReleaseSearchStatusResource GetSearchStatus(int? movieId, bool refresh = false, bool searchRemaining = false)
+        {
+            var status = movieId.HasValue ? _releaseSearchService.GetInteractiveSearchStatus(movieId.Value) : null;
+
+            return status.ToResource();
+        }
+
+        private async Task<List<ReleaseResource>> GetMovieReleases(int movieId, bool refresh, bool searchRemaining)
         {
             try
             {
-                var cached = refresh ? null : _releaseSearchService.CachedMovieSearch(movieId, true, true);
-                var decisions = cached?.Decisions ?? await _releaseSearchService.MovieSearch(movieId, true, true);
-                var prioritizedDecisions = _prioritizeDownloadDecision.PrioritizeDecisionsForMovies(decisions);
+                var result = await _releaseSearchService.InteractiveMovieSearch(movieId, refresh, searchRemaining);
+                var prioritizedDecisions = _prioritizeDownloadDecision.PrioritizeDecisionsForMovies(result.Decisions);
                 var history = _historyService.FindByMovieId(movieId);
                 var releases = MapDecisions(prioritizedDecisions, history);
 
-                releases.ForEach(r => r.CachedAt = cached?.SearchedAt);
+                releases.ForEach(r => r.CachedAt = result.Status.CachedAt);
 
                 return releases;
             }
