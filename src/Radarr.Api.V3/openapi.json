@@ -10279,8 +10279,8 @@
             "nullable": true
           },
           "medianResponseMs": {
-            "type": "number",
-            "format": "double",
+            "type": "integer",
+            "format": "int32",
             "nullable": true
           },
           "historyCount": {
@@ -10289,18 +10289,18 @@
             "nullable": true
           },
           "historyMedianMs": {
-            "type": "number",
-            "format": "double",
+            "type": "integer",
+            "format": "int32",
             "nullable": true
           },
           "historyLowMs": {
-            "type": "number",
-            "format": "double",
+            "type": "integer",
+            "format": "int32",
             "nullable": true
           },
           "historyHighMs": {
-            "type": "number",
-            "format": "double",
+            "type": "integer",
+            "format": "int32",
             "nullable": true
           }
         },
@@ -10308,8 +10308,8 @@
       },
       "IndexerSearchStatusType": {
         "enum": [
-          "searched",
           "cached",
+          "searched",
           "skipped",
           "notWaitedFor",
           "failed",

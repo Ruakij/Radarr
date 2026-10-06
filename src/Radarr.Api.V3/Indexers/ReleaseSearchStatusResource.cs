@@ -21,11 +21,11 @@ namespace Radarr.Api.V3.Indexers
         public string Message { get; set; }
         public DateTime? CachedAt { get; set; }
         public int? QueryCount { get; set; }
-        public double? MedianResponseMs { get; set; }
+        public int? MedianResponseMs { get; set; }
         public int? HistoryCount { get; set; }
-        public double? HistoryMedianMs { get; set; }
-        public double? HistoryLowMs { get; set; }
-        public double? HistoryHighMs { get; set; }
+        public int? HistoryMedianMs { get; set; }
+        public int? HistoryLowMs { get; set; }
+        public int? HistoryHighMs { get; set; }
     }
 
     public static class ReleaseSearchStatusResourceMapper
@@ -45,13 +45,18 @@ namespace Radarr.Api.V3.Indexers
                     Message = i.Message,
                     CachedAt = i.CachedAt,
                     QueryCount = i.QueryCount,
-                    MedianResponseMs = i.MedianResponseMs,
+                    MedianResponseMs = ToMs(i.MedianResponseMs),
                     HistoryCount = i.History?.Count,
-                    HistoryMedianMs = i.History?.MedianMs,
-                    HistoryLowMs = i.History?.LowMs,
-                    HistoryHighMs = i.History?.HighMs
+                    HistoryMedianMs = ToMs(i.History?.MedianMs),
+                    HistoryLowMs = ToMs(i.History?.LowMs),
+                    HistoryHighMs = ToMs(i.History?.HighMs)
                 }).ToList() ?? new List<IndexerSearchStatusResource>()
             };
+        }
+
+        private static int? ToMs(double? ms)
+        {
+            return ms.HasValue ? (int)Math.Round(ms.Value) : null;
         }
     }
 }
