@@ -22,6 +22,7 @@ using NzbDrone.Core.Profiles;
 using NzbDrone.Core.Profiles.Qualities;
 using NzbDrone.Core.Qualities;
 using NzbDrone.Core.Test.Framework;
+using NzbDrone.Test.Common;
 
 namespace NzbDrone.Core.Test.IndexerSearchTests
 {
@@ -341,6 +342,54 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             var titles = await SearchTitles();
 
             titles.Should().BeEquivalentTo("Rejected", "Slow");
+        }
+
+        private void GivenRequiredPriority(int requiredPriority)
+        {
+            Mocker.GetMock<IConfigService>().SetupGet(s => s.EarlySearchReturnRequiredPriority).Returns(requiredPriority);
+        }
+
+        [Test]
+        public async Task should_not_wait_for_preferred_indexer_when_required_priority_disabled()
+        {
+            GivenEarlySearchReturn(0);
+            GivenRequiredPriority(0);
+            var indexers = GivenIndexers((0, "Fast", Quality.Bluray1080p, 10), (Timeout.Infinite, "Slow", Quality.Bluray2160p, 100));
+            ((IndexerDefinition)indexers[1].Definition).Priority = 1;
+
+            var titles = await SearchTitles();
+
+            titles.Should().BeEquivalentTo("Fast");
+        }
+
+        [Test]
+        public async Task should_wait_for_slow_indexer_with_required_priority()
+        {
+            GivenEarlySearchReturn(0);
+            GivenRequiredPriority(10);
+            var indexers = GivenIndexers((0, "Fast", Quality.Bluray1080p, 10), (500, "Required", Quality.SDTV, 0), (Timeout.Infinite, "Slow", Quality.Bluray2160p, 100));
+            ((IndexerDefinition)indexers[1].Definition).Priority = 10;
+
+            var stopwatch = Stopwatch.StartNew();
+            var titles = await SearchTitles();
+
+            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+            titles.Should().BeEquivalentTo("Fast", "Required");
+        }
+
+        [Test]
+        public async Task should_return_early_when_indexer_with_required_priority_fails()
+        {
+            GivenEarlySearchReturn(0);
+            GivenRequiredPriority(10);
+            var indexers = GivenIndexers((0, "Fast", Quality.Bluray1080p, 10), (0, "Required", Quality.SDTV, 0), (Timeout.Infinite, "Slow", Quality.Bluray2160p, 100));
+            ((IndexerDefinition)indexers[1].Definition).Priority = 5;
+            Mock.Get(indexers[1]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new Exception("Indexer failed"));
+
+            var titles = await SearchTitles();
+
+            titles.Should().BeEquivalentTo("Fast");
+            ExceptionVerification.ExpectedErrors(1);
         }
 
         [Test]

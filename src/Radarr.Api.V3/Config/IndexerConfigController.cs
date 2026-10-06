@@ -25,6 +25,9 @@ namespace Radarr.Api.V3.Config
 
             SharedValidator.RuleFor(c => c.EarlySearchReturnMinimumWait)
                            .GreaterThanOrEqualTo(0);
+
+            SharedValidator.RuleFor(c => c.EarlySearchReturnRequiredPriority)
+                           .InclusiveBetween(0, 50);
         }
 
         protected override IndexerConfigResource ToResource(IConfigService model)

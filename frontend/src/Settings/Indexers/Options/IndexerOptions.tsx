@@ -174,22 +174,47 @@ function IndexerOptions({
           </FormGroup>
 
           {settings.earlySearchReturn.value ? (
-            <FormGroup
-              advancedSettings={showAdvancedSettings}
-              isAdvanced={true}
-            >
-              <FormLabel>{translate('EarlySearchReturnMinimumWait')}</FormLabel>
+            <>
+              <FormGroup
+                advancedSettings={showAdvancedSettings}
+                isAdvanced={true}
+              >
+                <FormLabel>
+                  {translate('EarlySearchReturnMinimumWait')}
+                </FormLabel>
 
-              <FormInputGroup
-                type={inputTypes.NUMBER}
-                name="earlySearchReturnMinimumWait"
-                min={0}
-                unit="seconds"
-                helpText={translate('EarlySearchReturnMinimumWaitHelpText')}
-                onChange={handleInputChange}
-                {...settings.earlySearchReturnMinimumWait}
-              />
-            </FormGroup>
+                <FormInputGroup
+                  type={inputTypes.NUMBER}
+                  name="earlySearchReturnMinimumWait"
+                  min={0}
+                  unit="seconds"
+                  helpText={translate('EarlySearchReturnMinimumWaitHelpText')}
+                  onChange={handleInputChange}
+                  {...settings.earlySearchReturnMinimumWait}
+                />
+              </FormGroup>
+
+              <FormGroup
+                advancedSettings={showAdvancedSettings}
+                isAdvanced={true}
+              >
+                <FormLabel>
+                  {translate('EarlySearchReturnRequiredPriority')}
+                </FormLabel>
+
+                <FormInputGroup
+                  type={inputTypes.NUMBER}
+                  name="earlySearchReturnRequiredPriority"
+                  min={0}
+                  max={50}
+                  helpText={translate(
+                    'EarlySearchReturnRequiredPriorityHelpText'
+                  )}
+                  onChange={handleInputChange}
+                  {...settings.earlySearchReturnRequiredPriority}
+                />
+              </FormGroup>
+            </>
           ) : null}
 
           <FormGroup advancedSettings={showAdvancedSettings} isAdvanced={true}>
