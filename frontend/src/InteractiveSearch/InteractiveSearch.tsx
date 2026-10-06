@@ -1,9 +1,10 @@
-import React, { useCallback, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import ClientSideCollectionAppState from 'App/State/ClientSideCollectionAppState';
 import ReleasesAppState from 'App/State/ReleasesAppState';
 import Alert from 'Components/Alert';
 import Icon from 'Components/Icon';
+import Button from 'Components/Link/Button';
 import LoadingIndicator from 'Components/Loading/LoadingIndicator';
 import FilterMenu from 'Components/Menu/FilterMenu';
 import PageMenuButton from 'Components/Menu/PageMenuButton';
@@ -124,6 +125,8 @@ interface InteractiveSearchProps {
   searchPayload: InteractiveSearchPayload;
 }
 
+const ROW_LIMIT = 100;
+
 function InteractiveSearch({ searchPayload }: InteractiveSearchProps) {
   const {
     isFetching,
@@ -141,6 +144,18 @@ function InteractiveSearch({ searchPayload }: InteractiveSearchProps) {
   );
 
   const dispatch = useDispatch();
+
+  const [isShowingAllRows, setIsShowingAllRows] = useState(false);
+
+  const handleShowAllRowsPress = useCallback(() => {
+    setIsShowingAllRows(true);
+  }, []);
+
+  useEffect(() => {
+    if (isFetching) {
+      setIsShowingAllRows(false);
+    }
+  }, [isFetching]);
 
   const handleFilterSelect = useCallback(
     (selectedFilterKey: string | number) => {
@@ -244,18 +259,30 @@ function InteractiveSearch({ searchPayload }: InteractiveSearchProps) {
           onSortPress={handleSortPress}
         >
           <TableBody>
-            {items.map((item) => {
-              return (
-                <InteractiveSearchRow
-                  key={`${item.indexerId}-${item.guid}`}
-                  {...item}
-                  searchPayload={searchPayload}
-                  onGrabPress={handleGrabPress}
-                />
-              );
-            })}
+            {(isShowingAllRows ? items : items.slice(0, ROW_LIMIT)).map(
+              (item) => {
+                return (
+                  <InteractiveSearchRow
+                    key={`${item.indexerId}-${item.guid}`}
+                    {...item}
+                    searchPayload={searchPayload}
+                    onGrabPress={handleGrabPress}
+                  />
+                );
+              }
+            )}
           </TableBody>
         </Table>
+      ) : null}
+
+      {!isShowingAllRows && items.length > ROW_LIMIT ? (
+        <div className={styles.showAllRows}>
+          <Button onPress={handleShowAllRowsPress}>
+            {translate('InteractiveSearchShowAllResults', {
+              count: items.length,
+            })}
+          </Button>
+        </div>
       ) : null}
 
       {totalItems !== items.length && !!items.length ? (

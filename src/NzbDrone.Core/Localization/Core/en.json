@@ -976,6 +976,7 @@
   "InteractiveSearchResultsFailedErrorMessage": "Search failed because its {message}. Try refreshing the movie info and verify the necessary information is present before searching again.",
   "InteractiveSearchSearchAgainTooltip": "Ignores the cache and searches every indexer again",
   "InteractiveSearchSearchRemainingTooltip": "Searches the indexers that were skipped, not waited for or failed in this search and adds their results",
+  "InteractiveSearchShowAllResults": "Show all {count} results",
   "InteractiveSearchStatus": "Search Status",
   "InteractiveSearchStatusCacheAge": "{minutes} min",
   "InteractiveSearchStatusCacheNote": "**Search Result Cache** is enabled: results of a search from the last {minutes} minutes are reused. Search Again queries all indexers.",
