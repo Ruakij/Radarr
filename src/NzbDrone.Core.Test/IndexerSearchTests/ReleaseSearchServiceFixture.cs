@@ -427,6 +427,24 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             ExceptionVerification.ExpectedErrors(1);
         }
 
+        [Test]
+        public async Task should_count_minimum_wait_from_search_start_across_priority_groups()
+        {
+            GivenEarlySearchReturn(2);
+            Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchIndexersInPriorityOrder).Returns(true);
+            var indexers = GivenIndexers((1500, "First", Quality.SDTV, 0), (0, "Fast", Quality.Bluray1080p, 10), (Timeout.Infinite, "Slow", Quality.Bluray2160p, 100));
+            ((IndexerDefinition)indexers[0].Definition).Priority = 1;
+            ((IndexerDefinition)indexers[1].Definition).Priority = 2;
+            ((IndexerDefinition)indexers[2].Definition).Priority = 2;
+
+            var stopwatch = Stopwatch.StartNew();
+            var titles = await SearchTitles();
+
+            stopwatch.Elapsed.Should().BeGreaterThan(TimeSpan.FromSeconds(1.5));
+            stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(3));
+            titles.Should().BeEquivalentTo("First", "Fast");
+        }
+
         private List<IIndexer> GivenPriorityGroups(params (int Priority, string Title, Quality Quality, int Score)[] indexers)
         {
             Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchIndexersInPriorityOrder).Returns(true);
