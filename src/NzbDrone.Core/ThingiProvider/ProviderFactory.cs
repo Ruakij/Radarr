@@ -96,7 +96,7 @@ namespace NzbDrone.Core.ThingiProvider
             return _providerRepository.Find(id) != null;
         }
 
-        public TProviderDefinition Get(int id)
+        public virtual TProviderDefinition Get(int id)
         {
             return _providerRepository.Get(id);
         }
@@ -106,7 +106,7 @@ namespace NzbDrone.Core.ThingiProvider
             return _providerRepository.Get(ids);
         }
 
-        public TProviderDefinition Find(int id)
+        public virtual TProviderDefinition Find(int id)
         {
             return _providerRepository.Find(id);
         }
