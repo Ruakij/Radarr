@@ -426,6 +426,86 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             ExceptionVerification.ExpectedErrors(1);
         }
 
+        private List<IIndexer> GivenPriorityGroups(params (int Priority, string Title, Quality Quality, int Score)[] indexers)
+        {
+            Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchIndexersInPriorityOrder).Returns(true);
+
+            var result = GivenIndexers(indexers.Select(i => (0, i.Title, i.Quality, i.Score)).ToArray());
+
+            for (var i = 0; i < indexers.Length; i++)
+            {
+                ((IndexerDefinition)result[i].Definition).Priority = indexers[i].Priority;
+            }
+
+            return result;
+        }
+
+        [Test]
+        public async Task should_search_all_priorities_when_priority_order_disabled()
+        {
+            GivenEarlySearchReturn(0);
+            GivenPriorityGroups((1, "Good", Quality.Bluray1080p, 10), (2, "Other", Quality.SDTV, 0));
+            Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchIndexersInPriorityOrder).Returns(false);
+
+            var titles = await SearchTitles(true);
+
+            titles.Should().BeEquivalentTo("Good", "Other");
+        }
+
+        [Test]
+        public async Task should_stop_after_first_priority_group_with_good_enough_release()
+        {
+            GivenEarlySearchReturn(0);
+            var indexers = GivenPriorityGroups((1, "Good", Quality.Bluray1080p, 10), (1, "Same", Quality.SDTV, 0), (2, "Lower", Quality.Bluray2160p, 100));
+
+            var titles = await SearchTitles(true);
+
+            titles.Should().BeEquivalentTo("Good", "Same");
+            Mock.Get(indexers[2]).Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Never());
+        }
+
+        [Test]
+        public async Task should_search_next_priority_group_when_nothing_good_enough_found()
+        {
+            GivenEarlySearchReturn(0);
+            var indexers = GivenPriorityGroups((1, "Rejected", Quality.Bluray1080p, 10), (2, "Lower", Quality.SDTV, 0), (3, "Lowest", Quality.Bluray1080p, 10), (4, "Last", Quality.Bluray1080p, 10));
+
+            var titles = await SearchTitles();
+
+            titles.Should().BeEquivalentTo("Rejected", "Lower", "Lowest");
+            Mock.Get(indexers[3]).Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Never());
+        }
+
+        [Test]
+        public async Task should_search_indexers_up_to_required_priority_as_first_group()
+        {
+            GivenEarlySearchReturn(0);
+            GivenRequiredPriority(10);
+            var indexers = GivenPriorityGroups((1, "Good", Quality.Bluray1080p, 10), (10, "Required", Quality.SDTV, 0), (11, "Lower", Quality.Bluray2160p, 100));
+
+            var titles = await SearchTitles(true);
+
+            titles.Should().BeEquivalentTo("Good", "Required");
+            Mock.Get(indexers[2]).Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Never());
+        }
+
+        [Test]
+        public async Task should_serve_interactive_search_from_cache_of_searched_priority_groups()
+        {
+            Mocker.SetConstant<ICacheManager>(Mocker.Resolve<CacheManager>());
+            Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchResultCacheLifetime).Returns(60);
+            GivenEarlySearchReturn(0);
+            GivenPriorityGroups((1, "Good", Quality.Bluray1080p, 10), (2, "Lower", Quality.SDTV, 0));
+
+            await SearchTitles();
+
+            Titles(Subject.CachedMovieSearch(_movie.Id, true, true).Decisions).Should().BeEquivalentTo("Good");
+
+            Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchIndexersInPriorityOrder).Returns(false);
+
+            Subject.CachedMovieSearch(_movie.Id, true, true).Should().BeNull();
+        }
+
         [Test]
         public async Task should_wait_for_all_indexers_when_early_search_return_disabled()
         {

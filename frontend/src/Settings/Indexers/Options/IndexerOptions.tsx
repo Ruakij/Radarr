@@ -214,6 +214,20 @@ function IndexerOptions({
                   {...settings.earlySearchReturnRequiredPriority}
                 />
               </FormGroup>
+
+              <FormGroup>
+                <FormLabel>
+                  {translate('SearchIndexersInPriorityOrder')}
+                </FormLabel>
+
+                <FormInputGroup
+                  type={inputTypes.CHECK}
+                  name="searchIndexersInPriorityOrder"
+                  helpText={translate('SearchIndexersInPriorityOrderHelpText')}
+                  onChange={handleInputChange}
+                  {...settings.searchIndexersInPriorityOrder}
+                />
+              </FormGroup>
             </>
           ) : null}
 
