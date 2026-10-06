@@ -122,7 +122,7 @@ namespace NzbDrone.Core.IndexerSearch
 
             if (_configService.EarlySearchReturn && !criteriaBase.InteractiveSearch)
             {
-                decisions = await CollectDecisionsWithEarlyReturn(tasks, criteriaBase);
+                decisions = await CollectDecisionsWithEarlyReturn(indexers, tasks, criteriaBase);
             }
             else
             {
@@ -148,9 +148,13 @@ namespace NzbDrone.Core.IndexerSearch
             return decisions;
         }
 
-        private async Task<List<DownloadDecision>> CollectDecisionsWithEarlyReturn(List<Task<IList<ReleaseInfo>>> tasks, SearchCriteriaBase criteriaBase)
+        private async Task<List<DownloadDecision>> CollectDecisionsWithEarlyReturn(List<IIndexer> indexers, List<Task<IList<ReleaseInfo>>> tasks, SearchCriteriaBase criteriaBase)
         {
             var minimumWait = TimeSpan.FromSeconds(_configService.EarlySearchReturnMinimumWait);
+            var requiredPriority = _configService.EarlySearchReturnRequiredPriority;
+
+            // Lower priority numbers are preferred
+            var required = tasks.Where((task, i) => requiredPriority > 0 && ((IndexerDefinition)indexers[i].Definition).Priority <= requiredPriority).ToHashSet<Task>();
 
             var decisions = new List<DownloadDecision>();
             var pending = new List<Task>(tasks);
@@ -166,7 +170,7 @@ namespace NzbDrone.Core.IndexerSearch
                 {
                     Task completed;
 
-                    if (!foundGoodRelease)
+                    if (!foundGoodRelease || pending.Any(required.Contains))
                     {
                         completed = await Task.WhenAny(pending);
                     }
