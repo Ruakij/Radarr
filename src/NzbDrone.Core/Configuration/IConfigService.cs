@@ -64,6 +64,7 @@ namespace NzbDrone.Core.Configuration
 
         int AvailabilityDelay { get; set; }
         int SearchResultCacheLifetime { get; set; }
+        int SearchConcurrency { get; set; }
 
         bool AllowHardcodedSubs { get; set; }
         string WhitelistedHardcodedSubs { get; set; }

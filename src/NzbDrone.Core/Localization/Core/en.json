@@ -1750,6 +1750,8 @@
   "Search": "Search",
   "SearchAgain": "Search Again",
   "SearchAll": "Search All",
+  "SearchConcurrency": "Search Concurrency",
+  "SearchConcurrencyHelpText": "Number of searches run at the same time, for example movies of a missing, cutoff or collection search. Grabs are still processed one after another.",
   "SearchCutoffUnmet": "Search Cutoff Unmet",
   "SearchFailedPleaseTryAgainLater": "Search failed, please try again later.",
   "SearchFiltered": "Search Filtered",
