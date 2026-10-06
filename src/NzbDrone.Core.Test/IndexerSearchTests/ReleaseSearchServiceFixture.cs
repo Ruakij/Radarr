@@ -99,7 +99,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             var allCriteria = WatchForSearchCriteria();
 
-            await Subject.MovieSearch(_movie, true, false, true);
+            await Subject.MovieSearch(_movie, true, false);
 
             var criteria = allCriteria.OfType<MovieSearchCriteria>().ToList();
 
@@ -125,7 +125,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             var allCriteria = WatchForSearchCriteria();
 
-            await Subject.MovieSearch(_movie, true, false, true);
+            await Subject.MovieSearch(_movie, true, false);
 
             var criteria = allCriteria.OfType<MovieSearchCriteria>().ToList();
 
@@ -152,7 +152,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             var allCriteria = WatchForSearchCriteria();
 
-            await Subject.MovieSearch(_movie, true, false, true);
+            await Subject.MovieSearch(_movie, true, false);
 
             var criteria = allCriteria.OfType<MovieSearchCriteria>().ToList();
 
@@ -179,7 +179,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             var allCriteria = WatchForSearchCriteria();
 
-            await Subject.MovieSearch(_movie, true, false, true);
+            await Subject.MovieSearch(_movie, true, false);
 
             var criteria = allCriteria.OfType<MovieSearchCriteria>().ToList();
 
@@ -271,7 +271,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
         private async Task<List<string>> SearchTitles(bool interactiveSearch = false)
         {
-            var decisions = await Subject.MovieSearch(_movie, true, interactiveSearch, true);
+            var decisions = await Subject.MovieSearch(_movie, true, interactiveSearch);
 
             return Titles(decisions);
         }
@@ -602,16 +602,16 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         }
 
         [Test]
-        public void should_serve_cached_search_when_only_indexers_without_a_query_are_not_cached()
+        public async Task should_send_nothing_when_only_indexers_without_a_query_are_not_cached()
         {
             GivenQueryCache();
             var indexers = GivenIndexers((0, "A", Quality.SDTV, 0), (0, "B", Quality.SDTV, 0));
             Mock.Get(indexers[1]).Setup(s => s.GetSearchQueryKey(It.IsAny<MovieSearchCriteria>())).Returns((string)null);
             GivenCachedQuery(1, "A", DateTime.UtcNow.AddMinutes(-5));
 
-            var cached = Subject.CachedMovieSearch(_movie.Id, false, false);
-
-            Titles(cached.Decisions).Should().BeEquivalentTo("A");
+            (await SearchTitles()).Should().BeEquivalentTo("A");
+            VerifyFetched(indexers[0], 0);
+            VerifyFetched(indexers[1], 0);
         }
 
         [Test]
@@ -816,7 +816,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             var slow = new TaskCompletionSource<IList<ReleaseInfo>>();
             Mock.Get(indexers[1]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).Returns(slow.Task);
 
-            var decisions = await Subject.MovieSearch(_movie, true, false, true);
+            var decisions = await Subject.MovieSearch(_movie, true, false);
 
             slow.SetResult(new List<ReleaseInfo> { new ReleaseInfo { IndexerId = 2, Title = "Slow", Guid = "Slow" } });
 

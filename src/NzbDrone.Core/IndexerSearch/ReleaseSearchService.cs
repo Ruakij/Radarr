@@ -23,9 +23,8 @@ namespace NzbDrone.Core.IndexerSearch
 {
     public interface ISearchForReleases
     {
-        Task<List<DownloadDecision>> MovieSearch(int movieId, bool userInvokedSearch, bool interactiveSearch, bool useCache);
-        Task<List<DownloadDecision>> MovieSearch(Movie movie, bool userInvokedSearch, bool interactiveSearch, bool useCache);
-        CachedSearchResult CachedMovieSearch(int movieId, bool userInvokedSearch, bool interactiveSearch);
+        Task<List<DownloadDecision>> MovieSearch(int movieId, bool userInvokedSearch, bool interactiveSearch);
+        Task<List<DownloadDecision>> MovieSearch(Movie movie, bool userInvokedSearch, bool interactiveSearch);
         Task<InteractiveSearchResult> InteractiveMovieSearch(int movieId, bool refresh, bool searchRemaining);
         InteractiveSearchStatus GetInteractiveSearchStatus(int movieId);
     }
@@ -66,43 +65,19 @@ namespace NzbDrone.Core.IndexerSearch
             _logger = logger;
         }
 
-        public async Task<List<DownloadDecision>> MovieSearch(int movieId, bool userInvokedSearch, bool interactiveSearch, bool useCache)
+        public async Task<List<DownloadDecision>> MovieSearch(int movieId, bool userInvokedSearch, bool interactiveSearch)
         {
-            return await MovieSearch(GetMovieWithTranslations(movieId), userInvokedSearch, interactiveSearch, useCache);
+            return await MovieSearch(GetMovieWithTranslations(movieId), userInvokedSearch, interactiveSearch);
         }
 
-        public async Task<List<DownloadDecision>> MovieSearch(Movie movie, bool userInvokedSearch, bool interactiveSearch, bool useCache)
+        // Cached queries answer at once, only the others are sent
+        public async Task<List<DownloadDecision>> MovieSearch(Movie movie, bool userInvokedSearch, bool interactiveSearch)
         {
             var searchSpec = Get<MovieSearchCriteria>(movie, userInvokedSearch, interactiveSearch);
 
-            var result = await Dispatch(searchSpec, GetIndexerGroups(GetIndexers(searchSpec)), useCache);
+            var result = await Dispatch(searchSpec, GetIndexerGroups(GetIndexers(searchSpec)), true);
 
             return DeDupeDecisions(result.Decisions);
-        }
-
-        public CachedSearchResult CachedMovieSearch(int movieId, bool userInvokedSearch, bool interactiveSearch)
-        {
-            if (_configService.SearchResultCacheLifetime <= 0)
-            {
-                return null;
-            }
-
-            var searchSpec = Get<MovieSearchCriteria>(GetMovieWithTranslations(movieId), userInvokedSearch, interactiveSearch);
-            var cached = GetIndexers(searchSpec).Select(i => GetQueryKey(i, searchSpec)).Where(k => k.HasQuery).Select(k => FindCachedQuery(k.Key)).ToList();
-
-            // Served from the cache only when the search would not send a single query
-            if (cached.Count == 0 || cached.Any(c => c == null))
-            {
-                return null;
-            }
-
-            var releases = cached.SelectMany(c => c.Releases).ToList();
-            var fetchedAt = cached.Min(c => c.FetchedAt);
-
-            _logger.ProgressInfo("Using {0} search results for {1} cached since {2}", releases.Count, searchSpec, fetchedAt.ToLocalTime());
-
-            // Decisions are made again so changes to the movie, profile, blocklist and queue since the search apply
-            return new CachedSearchResult(DeDupeDecisions(_makeDownloadDecision.GetSearchDecision(releases, searchSpec)), fetchedAt);
         }
 
         public async Task<InteractiveSearchResult> InteractiveMovieSearch(int movieId, bool refresh, bool searchRemaining)

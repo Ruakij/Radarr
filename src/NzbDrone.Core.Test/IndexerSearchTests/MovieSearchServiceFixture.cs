@@ -117,7 +117,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
         private void RedownloadFailed()
         {
-            Subject.Execute(new MoviesSearchCommand { MovieIds = new List<int> { _movie.Id }, FallbackToIndexers = true });
+            Subject.Execute(new MoviesSearchCommand { MovieIds = new List<int> { _movie.Id } });
         }
 
         private void VerifyGrabbed(string guid)
@@ -165,18 +165,6 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             Mocker.GetMock<IDownloadService>()
                   .Verify(v => v.DownloadReport(It.Is<RemoteMovie>(r => r.Release.Guid == "guid2"), null), Times.Never());
             VerifySearchCount(1);
-        }
-
-        [Test]
-        public void should_search_when_no_cached_release_is_acceptable()
-        {
-            SearchAndFail("guid1");
-            _blocklistedGuids.Add("guid2");
-            _blocklistedGuids.Add("guid3");
-
-            RedownloadFailed();
-
-            VerifySearchCount(2);
         }
 
         [Test]
@@ -287,13 +275,13 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         }
 
         [Test]
-        public void should_not_search_indexers_for_automatic_search_when_no_cached_release_is_acceptable()
+        public void should_not_search_indexers_when_no_cached_release_is_acceptable()
         {
             SearchAndFail("guid1");
             _blocklistedGuids.Add("guid2");
             _blocklistedGuids.Add("guid3");
 
-            Search();
+            RedownloadFailed();
 
             VerifySearchCount(1);
         }
@@ -312,19 +300,36 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         }
 
         [Test]
-        public void should_search_indexers_and_refresh_cache_for_manual_search()
+        public void should_use_cached_releases_for_manual_search()
         {
             SearchAndFail("guid1");
-            _releases.Add(new ReleaseInfo { IndexerId = 1, Guid = "guid4", Title = "Movie.2024.Release4", DownloadProtocol = DownloadProtocol.Usenet });
 
             Subject.Execute(new MoviesSearchCommand { MovieIds = new List<int> { _movie.Id }, Trigger = CommandTrigger.Manual });
 
-            VerifySearchCount(2);
+            VerifyGrabbed("guid2");
+            VerifySearchCount(1);
+        }
+
+        [Test]
+        public void should_send_only_queries_missing_from_cache()
+        {
+            var other = new Mock<IIndexer>();
+            other.SetupGet(s => s.Definition).Returns(new IndexerDefinition { Id = 2 });
+            other.Setup(s => s.GetSearchQueryKey(It.IsAny<MovieSearchCriteria>())).Returns("q");
+            other.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>()))
+                 .Returns(() => Task.FromResult<IList<ReleaseInfo>>(new List<ReleaseInfo>()));
+
+            SearchAndFail("guid1");
+
+            Mocker.GetMock<IIndexerFactory>()
+                  .Setup(s => s.AutomaticSearchEnabled(true))
+                  .Returns(new List<IIndexer> { _indexer.Object, other.Object });
 
             Search();
 
-            VerifySearchCount(2);
-            GetCache().Find(QueryKey).Releases.Should().Contain(r => r.Guid == "guid4");
+            VerifyGrabbed("guid2");
+            VerifySearchCount(1);
+            other.Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Once());
         }
 
         [Test]

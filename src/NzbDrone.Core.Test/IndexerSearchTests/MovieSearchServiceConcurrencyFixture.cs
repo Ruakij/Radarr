@@ -48,8 +48,8 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
                   .Returns(concurrency);
 
             Mocker.GetMock<ISearchForReleases>()
-                  .Setup(s => s.MovieSearch(It.IsAny<int>(), It.IsAny<bool>(), false, It.IsAny<bool>()))
-                  .Returns<int, bool, bool, bool>(async (movieId, userInvokedSearch, interactiveSearch, useCache) =>
+                  .Setup(s => s.MovieSearch(It.IsAny<int>(), It.IsAny<bool>(), false))
+                  .Returns<int, bool, bool>(async (movieId, userInvokedSearch, interactiveSearch) =>
                   {
                       onStart?.Invoke();
                       await Task.Delay((MovieCount - movieId + 1) * 20);
@@ -117,31 +117,6 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             sequential.Should().BeEquivalentTo(expected, o => o.WithStrictOrdering());
 
             parallel.Should().BeEquivalentTo(sequential, o => o.WithStrictOrdering());
-            ExceptionVerification.IgnoreErrors();
-        }
-
-        [Test]
-        public void should_process_cached_results_in_order_without_searching_indexers()
-        {
-            var processed = GivenMovieSearches(3);
-
-            Mocker.GetMock<ISearchForReleases>()
-                  .Setup(s => s.CachedMovieSearch(It.Is<int>(id => id == 2 || id == 4), false, false))
-                  .Returns<int, bool, bool>((movieId, userInvokedSearch, interactiveSearch) => new CachedSearchResult(new List<DownloadDecision> { Decision(movieId, $"{movieId}-cached") }, DateTime.UtcNow));
-
-            Subject.Execute(new MoviesSearchCommand { MovieIds = Enumerable.Range(1, MovieCount).ToList(), Trigger = CommandTrigger.Scheduled });
-
-            var expected = new List<List<string>>
-            {
-                new List<string> { "1-a", "1-b" },
-                new List<string> { "2-cached" },
-                new List<string> { "4-cached" },
-                new List<string> { "5-a", "5-b" }
-            };
-
-            processed.Should().BeEquivalentTo(expected, o => o.WithStrictOrdering());
-            Mocker.GetMock<ISearchForReleases>()
-                  .Verify(v => v.MovieSearch(It.Is<int>(id => id == 2 || id == 4), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()), Times.Never());
             ExceptionVerification.IgnoreErrors();
         }
 
