@@ -58,7 +58,7 @@ namespace NzbDrone.Core.DecisionEngine.Specifications.RssSync
 
             if (isPreferredProtocol && (subject.Movie.MovieFileId != 0 && file != null))
             {
-                var customFormats = _formatService.ParseCustomFormat(file);
+                var customFormats = DecisionRunCache.Get($"customFormats:file:{file.Id}", () => _formatService.ParseCustomFormat(file));
                 var upgradeableRejectReason = _qualityUpgradableSpecification.IsUpgradable(profile,
                     file.Quality,
                     customFormats,
@@ -103,7 +103,7 @@ namespace NzbDrone.Core.DecisionEngine.Specifications.RssSync
                 }
             }
 
-            var oldest = _pendingReleaseService.OldestPendingRelease(subject.Movie.Id);
+            var oldest = DecisionRunCache.Get($"pending:oldest:{subject.Movie.Id}", () => _pendingReleaseService.OldestPendingRelease(subject.Movie.Id));
 
             if (oldest != null && oldest.Release.AgeMinutes > delay)
             {

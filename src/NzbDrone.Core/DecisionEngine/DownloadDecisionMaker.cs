@@ -44,7 +44,10 @@ namespace NzbDrone.Core.DecisionEngine
 
         public List<DownloadDecision> GetRssDecision(List<ReleaseInfo> reports, bool pushedRelease = false)
         {
-            return GetDecisions(reports, pushedRelease).ToList();
+            using (DecisionRunCache.Begin())
+            {
+                return GetDecisions(reports, pushedRelease).ToList();
+            }
         }
 
         public List<DownloadDecision> GetSearchDecision(List<ReleaseInfo> reports, SearchCriteriaBase searchCriteriaBase)
@@ -54,7 +57,10 @@ namespace NzbDrone.Core.DecisionEngine
 
         public List<DownloadDecision> GetSearchDecision(List<ReleaseInfo> reports, SearchCriteriaBase searchCriteriaBase, bool reportProgress)
         {
-            return GetDecisions(reports, false, searchCriteriaBase, reportProgress).ToList();
+            using (DecisionRunCache.Begin())
+            {
+                return GetDecisions(reports, false, searchCriteriaBase, reportProgress).ToList();
+            }
         }
 
         private IEnumerable<DownloadDecision> GetDecisions(List<ReleaseInfo> reports, bool pushedRelease = false, SearchCriteriaBase searchCriteria = null, bool reportProgress = true)

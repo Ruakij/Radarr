@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using NzbDrone.Common.Extensions;
 using NzbDrone.Core.Datastore;
+using NzbDrone.Core.DecisionEngine;
 using NzbDrone.Core.Download;
 using NzbDrone.Core.Indexers;
 using NzbDrone.Core.Messaging.Commands;
@@ -31,10 +32,12 @@ namespace NzbDrone.Core.Blocklisting
                                     IHandleAsync<MoviesDeletedEvent>
     {
         private readonly IBlocklistRepository _blocklistRepository;
+        private readonly IMainDatabase _database;
 
-        public BlocklistService(IBlocklistRepository blocklistRepository)
+        public BlocklistService(IBlocklistRepository blocklistRepository, IMainDatabase database)
         {
             _blocklistRepository = blocklistRepository;
+            _database = database;
         }
 
         public bool Blocklisted(int movieId, ReleaseInfo release)
@@ -48,19 +51,44 @@ namespace NzbDrone.Core.Blocklisting
 
                 if (torrentInfo.InfoHash.IsNotNullOrWhiteSpace())
                 {
-                    var blocklistedByTorrentInfohash = _blocklistRepository.BlocklistedByTorrentInfoHash(movieId, torrentInfo.InfoHash);
-
-                    return blocklistedByTorrentInfohash.Any(b => SameTorrent(b, torrentInfo));
+                    return BlocklistedByTorrentInfoHash(movieId, torrentInfo.InfoHash).Any(b => SameTorrent(b, torrentInfo));
                 }
 
-                return _blocklistRepository.BlocklistedByTitle(movieId, release.Title)
+                return BlocklistedByTitle(movieId, release.Title)
                     .Where(b => b.Protocol == DownloadProtocol.Torrent)
                     .Any(b => SameTorrent(b, torrentInfo));
             }
 
-            return _blocklistRepository.BlocklistedByTitle(movieId, release.Title)
+            return BlocklistedByTitle(movieId, release.Title)
                 .Where(b => b.Protocol == DownloadProtocol.Usenet)
                 .Any(b => SameNzb(b, release));
+        }
+
+        // A decision run checks every release against the movie blocklist, so SQLite loads it once per run and matches
+        // like the LIKE query does. PostgreSQL keeps the query, as its ILIKE case folding depends on the server locale.
+        private IEnumerable<Blocklist> BlocklistedByTitle(int movieId, string title)
+        {
+            if (_database.DatabaseType == DatabaseType.PostgreSQL)
+            {
+                return _blocklistRepository.BlocklistedByTitle(movieId, title);
+            }
+
+            return GetMovieBlocklist(movieId).Where(b => SqliteLike.Contains(b.SourceTitle, title));
+        }
+
+        private IEnumerable<Blocklist> BlocklistedByTorrentInfoHash(int movieId, string infoHash)
+        {
+            if (_database.DatabaseType == DatabaseType.PostgreSQL)
+            {
+                return _blocklistRepository.BlocklistedByTorrentInfoHash(movieId, infoHash);
+            }
+
+            return GetMovieBlocklist(movieId).Where(b => SqliteLike.Contains(b.TorrentInfoHash, infoHash));
+        }
+
+        private List<Blocklist> GetMovieBlocklist(int movieId)
+        {
+            return DecisionRunCache.Get($"blocklist:{movieId}", () => _blocklistRepository.BlocklistedByMovie(movieId));
         }
 
         public bool BlocklistedTorrentHash(int movieId, string hash)
