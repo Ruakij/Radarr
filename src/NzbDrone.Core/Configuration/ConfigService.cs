@@ -183,6 +183,13 @@ namespace NzbDrone.Core.Configuration
             set { SetValue("EarlySearchReturnMinimumWait", value); }
         }
 
+        public int EarlySearchReturnRequiredPriority
+        {
+            get { return GetValueInt("EarlySearchReturnRequiredPriority", 0); }
+
+            set { SetValue("EarlySearchReturnRequiredPriority", value); }
+        }
+
         public int SearchResultCacheLifetime
         {
             // Falls back to the value of the setting it was renamed from
