@@ -12,8 +12,8 @@ namespace NzbDrone.Core.IndexerSearch
 
     public enum IndexerSearchStatusType
     {
-        Searched,
         Cached,
+        Searched,
         Skipped,
         NotWaitedFor,
         Failed,

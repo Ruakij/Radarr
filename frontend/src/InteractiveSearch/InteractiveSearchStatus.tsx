@@ -16,8 +16,8 @@ import InteractiveSearchPayload from './InteractiveSearchPayload';
 import styles from './InteractiveSearchStatus.css';
 
 type IndexerSearchStatusType =
-  | 'searched'
   | 'cached'
+  | 'searched'
   | 'skipped'
   | 'notWaitedFor'
   | 'failed'
