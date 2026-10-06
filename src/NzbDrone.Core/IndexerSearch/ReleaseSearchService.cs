@@ -154,7 +154,7 @@ namespace NzbDrone.Core.IndexerSearch
         {
             var entry = _configService.SearchResultCacheLifetime > 0 ? _searchResultCache.Find(movieId.ToString()) : null;
 
-            if (entry == null)
+            if (entry == null || entry.IndexerIds.Count == 0)
             {
                 return null;
             }
@@ -220,7 +220,15 @@ namespace NzbDrone.Core.IndexerSearch
             // Cached<T> only evicts expired entries on lookup, so drop them here to keep the cache bounded
             _searchResultCache.ClearExpired();
 
-            _searchResultCache.Set(movie.Id.ToString(), new SearchResultCacheEntry(reports, SearchedIndexerIds(statuses), searchedAt), TimeSpan.FromMinutes(lifetime));
+            var indexerIds = SearchedIndexerIds(statuses);
+
+            // A search no indexer answered has nothing to serve, caching it would keep automatic searches from asking the indexers again
+            if (indexerIds.Count == 0)
+            {
+                return;
+            }
+
+            _searchResultCache.Set(movie.Id.ToString(), new SearchResultCacheEntry(reports, indexerIds, searchedAt), TimeSpan.FromMinutes(lifetime));
         }
 
         private Movie GetMovieWithTranslations(int movieId)

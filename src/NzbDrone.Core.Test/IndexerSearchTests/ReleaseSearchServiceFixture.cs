@@ -690,5 +690,23 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             Subject.CachedMovieSearch(_movie.Id, true, true).Should().BeNull();
         }
+
+        [Test]
+        public async Task should_not_cache_search_no_indexer_answered()
+        {
+            var indexer = GivenCachedIndexer(1, "A");
+            GivenSearchResultCache(new List<Mock<IIndexer>> { indexer }, new List<Mock<IIndexer>> { indexer });
+            indexer.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new Exception("Indexer failed"));
+
+            await Subject.MovieSearch(_movie, false, false);
+
+            var cache = Mocker.Resolve<ICacheManager>().GetCache<SearchResultCacheEntry>(typeof(ReleaseSearchService), "searchResults");
+            cache.Find(_movie.Id.ToString()).Should().BeNull();
+
+            cache.Set(_movie.Id.ToString(), new SearchResultCacheEntry(new List<ReleaseInfo>(), new HashSet<int>(), DateTime.UtcNow), TimeSpan.FromMinutes(15));
+
+            Subject.CachedMovieSearch(_movie.Id, false, false).Should().BeNull();
+            ExceptionVerification.ExpectedErrors(1);
+        }
     }
 }
