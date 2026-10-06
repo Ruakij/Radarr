@@ -88,23 +88,45 @@ namespace NzbDrone.Core.IndexerSearch
 
             var movie = GetMovieWithTranslations(movieId);
             var searchSpec = Get<MovieSearchCriteria>(movie, userInvokedSearch, interactiveSearch);
-            var indexerIds = GetIndexers(searchSpec).Select(i => i.Definition.Id).ToHashSet();
+            var indexers = GetIndexers(searchSpec);
+            var indexerIds = indexers.Select(i => i.Definition.Id).ToHashSet();
+            var releases = entry.Releases.Where(r => indexerIds.Contains(r.IndexerId)).ToList();
 
-            // Interactive search shows everything its indexers return, so it is only served by a search that got an answer from all of them
-            if (interactiveSearch && !indexerIds.IsSubsetOf(entry.IndexerIds))
+            // Decisions are made again so changes to the movie, profile, blocklist and queue since the search apply
+            var decisions = _makeDownloadDecision.GetSearchDecision(releases, searchSpec);
+
+            // Interactive search shows everything its indexers return, so it is only served by a search that got an answer from all indexers it would have searched
+            if (interactiveSearch && !CoversSearchedIndexers(indexers, entry.IndexerIds, decisions, searchSpec))
             {
                 _logger.Debug("Cached search results for {0} are missing results of some indexers, searching indexers", searchSpec);
                 return null;
             }
 
-            var releases = entry.Releases.Where(r => indexerIds.Contains(r.IndexerId)).ToList();
-
             _logger.ProgressInfo("Using {0} search results for {1} cached at {2}", releases.Count, searchSpec, entry.SearchedAt.ToLocalTime());
 
-            // Decisions are made again so changes to the movie, profile, blocklist and queue since the search apply
-            var decisions = _makeDownloadDecision.GetSearchDecision(releases, searchSpec);
-
             return new CachedSearchResult(DeDupeDecisions(decisions), entry.SearchedAt);
+        }
+
+        private bool CoversSearchedIndexers(List<IIndexer> indexers, HashSet<int> answeredIndexerIds, List<DownloadDecision> decisions, SearchCriteriaBase criteriaBase)
+        {
+            var groups = GetIndexerGroups(indexers);
+
+            for (var i = 0; i < groups.Count; i++)
+            {
+                var groupIds = groups[i].Select(indexer => indexer.Definition.Id).ToHashSet();
+
+                if (!groupIds.IsSubsetOf(answeredIndexerIds))
+                {
+                    return false;
+                }
+
+                if (i < groups.Count - 1 && decisions.Any(d => groupIds.Contains(d.RemoteMovie.Release.IndexerId) && IsGoodEnough(d, criteriaBase)))
+                {
+                    return true;
+                }
+            }
+
+            return true;
         }
 
         private void CacheSearchResults(Movie movie, List<ReleaseInfo> reports, HashSet<int> indexerIds)
@@ -171,32 +193,63 @@ namespace NzbDrone.Core.IndexerSearch
             return indexers.Where(i => i.Definition.Tags.Empty() || i.Definition.Tags.Intersect(criteriaBase.Movie.Tags).Any()).ToList();
         }
 
+        // Groups are searched one after another, a single group unless indexers are searched in priority order
+        private List<List<IIndexer>> GetIndexerGroups(List<IIndexer> indexers)
+        {
+            if (!_configService.EarlySearchReturn || !_configService.SearchIndexersInPriorityOrder)
+            {
+                return new List<List<IIndexer>> { indexers };
+            }
+
+            // Lower priority numbers are preferred, indexers up to the required priority are always waited for and so form the first group
+            var requiredPriority = _configService.EarlySearchReturnRequiredPriority;
+
+            return indexers.GroupBy(i => Math.Max(((IndexerDefinition)i.Definition).Priority, requiredPriority))
+                .OrderBy(g => g.Key)
+                .Select(g => g.ToList())
+                .ToList();
+        }
+
         private async Task<List<DownloadDecision>> Dispatch(Func<IIndexer, Task<IList<ReleaseInfo>>> searchAction, SearchCriteriaBase criteriaBase)
         {
             var indexers = GetIndexers(criteriaBase);
 
             _logger.ProgressInfo("Searching indexers for {0}. {1} active indexers", criteriaBase, indexers.Count);
 
-            var tasks = indexers.Select(indexer => DispatchIndexer(searchAction, indexer, criteriaBase)).ToList();
-
-            List<DownloadDecision> decisions;
+            var decisions = new List<DownloadDecision>();
             var reports = new List<ReleaseInfo>();
             var answeredIndexerIds = new HashSet<int>();
+            var groups = GetIndexerGroups(indexers);
 
-            if (_configService.EarlySearchReturn && !criteriaBase.InteractiveSearch)
+            for (var i = 0; i < groups.Count; i++)
             {
-                decisions = await CollectDecisionsWithEarlyReturn(indexers, tasks, criteriaBase, reports, answeredIndexerIds);
-            }
-            else
-            {
-                var batch = await Task.WhenAll(tasks);
+                var group = groups[i];
+                var tasks = group.Select(indexer => DispatchIndexer(searchAction, indexer, criteriaBase)).ToList();
+                List<DownloadDecision> groupDecisions;
 
-                reports.AddRange(batch.SelectMany(x => x));
-                answeredIndexerIds.UnionWith(indexers.Select(i => i.Definition.Id));
+                if (_configService.EarlySearchReturn && !criteriaBase.InteractiveSearch)
+                {
+                    groupDecisions = await CollectDecisionsWithEarlyReturn(group, tasks, criteriaBase, reports, answeredIndexerIds);
+                }
+                else
+                {
+                    var groupReports = (await Task.WhenAll(tasks)).SelectMany(x => x).ToList();
 
-                _logger.ProgressDebug("Total of {0} reports were found for {1} from {2} indexers", reports.Count, criteriaBase, indexers.Count);
+                    reports.AddRange(groupReports);
+                    answeredIndexerIds.UnionWith(group.Select(indexer => indexer.Definition.Id));
 
-                decisions = _makeDownloadDecision.GetSearchDecision(reports, criteriaBase);
+                    _logger.ProgressDebug("Total of {0} reports were found for {1} from {2} indexers", groupReports.Count, criteriaBase, group.Count);
+
+                    groupDecisions = _makeDownloadDecision.GetSearchDecision(groupReports, criteriaBase);
+                }
+
+                decisions.AddRange(groupDecisions);
+
+                if (i < groups.Count - 1 && groupDecisions.Any(d => IsGoodEnough(d, criteriaBase)))
+                {
+                    _logger.ProgressInfo("Found a good enough release for {0}, skipping {1} indexers with lower priority", criteriaBase, groups.Skip(i + 1).Sum(g => g.Count));
+                    break;
+                }
             }
 
             CacheSearchResults(criteriaBase.Movie, reports, answeredIndexerIds);

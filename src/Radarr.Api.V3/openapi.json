@@ -10078,6 +10078,9 @@
             "type": "integer",
             "format": "int32"
           },
+          "searchIndexersInPriorityOrder": {
+            "type": "boolean"
+          },
           "searchResultCacheLifetime": {
             "type": "integer",
             "format": "int32"

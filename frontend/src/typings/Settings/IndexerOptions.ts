@@ -11,5 +11,6 @@ export default interface IndexerOptions {
   earlySearchReturn: boolean;
   earlySearchReturnMinimumWait: number;
   earlySearchReturnRequiredPriority: number;
+  searchIndexersInPriorityOrder: boolean;
   searchResultCacheLifetime: number;
 }
