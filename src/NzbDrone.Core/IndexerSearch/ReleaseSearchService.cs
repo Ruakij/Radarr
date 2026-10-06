@@ -99,12 +99,14 @@ namespace NzbDrone.Core.IndexerSearch
             List<DownloadDecision> decisions;
             List<IndexerSearchStatus> statuses;
             DateTime? cachedAt = null;
+            DateTime searchedAt;
 
             if (cached != null)
             {
                 releases = cached.Releases;
                 decisions = cached.Decisions;
                 cachedAt = cached.Entry.SearchedAt;
+                searchedAt = cached.Entry.SearchedAt;
 
                 // Indexers missing from a cached search that covers the interactive search were skipped by searching in priority order
                 statuses = indexers.Select(i => GetStatus(i, cached.Entry.IndexerIds.Contains(i.Definition.Id) ? IndexerSearchStatusType.Cached : IndexerSearchStatusType.Skipped, releases)).ToList();
@@ -122,8 +124,10 @@ namespace NzbDrone.Core.IndexerSearch
                 decisions = _makeDownloadDecision.GetSearchDecision(keptReleases, searchSpec).Concat(result.Decisions).ToList();
                 statuses = previous.Status.Indexers.Where(s => keptIds.Contains(s.IndexerId)).Concat(result.Statuses).ToList();
                 cachedAt = previous.Status.CachedAt;
+                searchedAt = previous.SearchedAt;
 
-                CacheSearchResults(searchSpec.Movie, releases, statuses, cachedAt ?? DateTime.UtcNow);
+                // The merged results are as old as the oldest kept ones, so they expire with them
+                CacheSearchResults(searchSpec.Movie, releases, statuses, searchedAt);
             }
             else
             {
@@ -132,15 +136,16 @@ namespace NzbDrone.Core.IndexerSearch
                 releases = result.Reports;
                 decisions = result.Decisions;
                 statuses = result.Statuses;
+                searchedAt = DateTime.UtcNow;
 
-                CacheSearchResults(searchSpec.Movie, releases, statuses, DateTime.UtcNow);
+                CacheSearchResults(searchSpec.Movie, releases, statuses, searchedAt);
             }
 
             var status = new InteractiveSearchStatus(cachedAt, statuses.OrderBy(s => s.Priority).ThenBy(s => s.Name).ToList());
 
             // Kept as long as the controller keeps the releases for grabbing
             _interactiveSearches.ClearExpired();
-            _interactiveSearches.Set(movieId.ToString(), new InteractiveSearchEntry(releases, status), TimeSpan.FromMinutes(30));
+            _interactiveSearches.Set(movieId.ToString(), new InteractiveSearchEntry(releases, status, searchedAt), TimeSpan.FromMinutes(30));
 
             return new InteractiveSearchResult(DeDupeDecisions(decisions), status);
         }
@@ -221,14 +226,15 @@ namespace NzbDrone.Core.IndexerSearch
             _searchResultCache.ClearExpired();
 
             var indexerIds = SearchedIndexerIds(statuses);
+            var expiresIn = searchedAt.AddMinutes(lifetime) - DateTime.UtcNow;
 
             // A search no indexer answered has nothing to serve, caching it would keep automatic searches from asking the indexers again
-            if (indexerIds.Count == 0)
+            if (indexerIds.Count == 0 || expiresIn <= TimeSpan.Zero)
             {
                 return;
             }
 
-            _searchResultCache.Set(movie.Id.ToString(), new SearchResultCacheEntry(reports, indexerIds, searchedAt), TimeSpan.FromMinutes(lifetime));
+            _searchResultCache.Set(movie.Id.ToString(), new SearchResultCacheEntry(reports, indexerIds, searchedAt), expiresIn);
         }
 
         private Movie GetMovieWithTranslations(int movieId)

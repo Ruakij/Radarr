@@ -27,6 +27,6 @@ namespace NzbDrone.Core.IndexerSearch
 
     public record InteractiveSearchResult(List<DownloadDecision> Decisions, InteractiveSearchStatus Status);
 
-    // The releases are kept so the remaining indexers can be searched later and merged in
-    public record InteractiveSearchEntry(List<ReleaseInfo> Releases, InteractiveSearchStatus Status);
+    // The releases are kept so the remaining indexers can be searched later and merged in, SearchedAt is the time of the oldest of them
+    public record InteractiveSearchEntry(List<ReleaseInfo> Releases, InteractiveSearchStatus Status, DateTime SearchedAt);
 }

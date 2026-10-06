@@ -726,5 +726,37 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             Subject.CachedMovieSearch(_movie.Id, false, false).Should().BeNull();
             ExceptionVerification.ExpectedErrors(1);
         }
+
+        [TestCase(10, true)]
+        [TestCase(20, false)]
+        public async Task should_expire_merged_search_results_with_the_original_search(int minutesAgo, bool cached)
+        {
+            var indexer = GivenCachedIndexer(1, "A");
+            GivenSearchResultCache(new List<Mock<IIndexer>> { indexer }, new List<Mock<IIndexer>> { indexer });
+            indexer.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new Exception("Indexer failed"));
+
+            await Subject.InteractiveMovieSearch(_movie.Id, false, false);
+
+            var searchedAt = DateTime.UtcNow.AddMinutes(-minutesAgo);
+            var searches = Mocker.Resolve<ICacheManager>().GetCache<InteractiveSearchEntry>(typeof(ReleaseSearchService), "interactiveSearches");
+            searches.Set(_movie.Id.ToString(), searches.Find(_movie.Id.ToString()) with { SearchedAt = searchedAt });
+
+            indexer.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).Returns(() => Task.FromResult<IList<ReleaseInfo>>(new List<ReleaseInfo> { new ReleaseInfo { IndexerId = 1, Title = "A", Guid = "A" } }));
+
+            await Subject.InteractiveMovieSearch(_movie.Id, false, true);
+
+            var result = Subject.CachedMovieSearch(_movie.Id, false, false);
+
+            if (cached)
+            {
+                result.SearchedAt.Should().Be(searchedAt);
+            }
+            else
+            {
+                result.Should().BeNull();
+            }
+
+            ExceptionVerification.ExpectedErrors(1);
+        }
     }
 }
