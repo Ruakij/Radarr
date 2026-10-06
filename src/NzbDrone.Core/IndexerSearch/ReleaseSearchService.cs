@@ -10,6 +10,7 @@ using NzbDrone.Common.Cache;
 using NzbDrone.Common.Extensions;
 using NzbDrone.Common.Instrumentation.Extensions;
 using NzbDrone.Core.Configuration;
+using NzbDrone.Core.CustomFormats;
 using NzbDrone.Core.DecisionEngine;
 using NzbDrone.Core.DecisionEngine.Specifications;
 using NzbDrone.Core.Indexers;
@@ -40,6 +41,7 @@ namespace NzbDrone.Core.IndexerSearch
         private readonly ICached<IndexerQueryResult> _queryCache;
         private readonly ICached<InteractiveSearchEntry> _interactiveSearches;
         private readonly IUpgradableSpecification _upgradableSpecification;
+        private readonly ICustomFormatCalculationService _formatService;
         private readonly IndexerResponseTimeHistory _responseTimes = new IndexerResponseTimeHistory();
         private readonly Logger _logger;
 
@@ -51,6 +53,7 @@ namespace NzbDrone.Core.IndexerSearch
                                 IConfigService configService,
                                 ICacheManager cacheManager,
                                 IUpgradableSpecification upgradableSpecification,
+                                ICustomFormatCalculationService formatService,
                                 Logger logger)
         {
             _indexerFactory = indexerFactory;
@@ -62,6 +65,7 @@ namespace NzbDrone.Core.IndexerSearch
             _queryCache = cacheManager.GetCache<IndexerQueryResult>(GetType(), "indexerQueries");
             _interactiveSearches = cacheManager.GetCache<InteractiveSearchEntry>(GetType(), "interactiveSearches");
             _upgradableSpecification = upgradableSpecification;
+            _formatService = formatService;
             _logger = logger;
         }
 
@@ -283,6 +287,13 @@ namespace NzbDrone.Core.IndexerSearch
                     break;
                 }
 
+                // No release is approved when the existing file meets the cutoff, lower priorities could not find an upgrade either
+                if (i > 0 && MovieMeetsCutoff(criteriaBase))
+                {
+                    _logger.ProgressInfo("Existing file of {0} meets the cutoff, skipping {1} indexers with lower priority", criteriaBase, groups.Skip(i).Sum(g => g.Count(indexer => !cached.ContainsKey(indexer.Definition.Id))));
+                    break;
+                }
+
                 var group = groups[i];
 
                 searchedGroups++;
@@ -478,6 +489,14 @@ namespace NzbDrone.Core.IndexerSearch
                    !_upgradableSpecification.CutoffNotMet(criteriaBase.Movie.QualityProfile,
                        decision.RemoteMovie.ParsedMovieInfo.Quality,
                        decision.RemoteMovie.CustomFormats);
+        }
+
+        private bool MovieMeetsCutoff(SearchCriteriaBase criteriaBase)
+        {
+            var movie = criteriaBase.Movie;
+            var file = movie.HasFile ? movie.MovieFile : null;
+
+            return file != null && !_upgradableSpecification.CutoffNotMet(movie.QualityProfile, file.Quality, _formatService.ParseCustomFormat(file, movie));
         }
 
         // A query Early Search Return stopped waiting for still finishes here and fills the cache for later searches
