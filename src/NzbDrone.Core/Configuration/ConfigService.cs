@@ -135,6 +135,12 @@ namespace NzbDrone.Core.Configuration
             set { SetValue("CertificationCountry", value); }
         }
 
+        public int SearchConcurrency
+        {
+            get { return GetValueInt("SearchConcurrency", 1); }
+            set { SetValue("SearchConcurrency", value); }
+        }
+
         public int MaximumSize
         {
             get { return GetValueInt("MaximumSize", 0); }

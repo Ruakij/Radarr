@@ -10048,6 +10048,10 @@
             "type": "integer",
             "format": "int32"
           },
+          "searchConcurrency": {
+            "type": "integer",
+            "format": "int32"
+          },
           "allowHardcodedSubs": {
             "type": "boolean"
           },
