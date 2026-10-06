@@ -3,6 +3,7 @@
 interface CssExports {
   'alert': string;
   'filterMenuContainer': string;
+  'showAllRows': string;
 }
 export const cssExports: CssExports;
 export default cssExports;

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useDispatch } from 'react-redux';
 import Button from 'Components/Link/Button';
 import ModalBody from 'Components/Modal/ModalBody';
@@ -28,6 +28,8 @@ function MovieInteractiveSearchModalContent({
 
   const { title, year } = useMovie(movieId) as Movie;
 
+  const searchPayload = useMemo(() => ({ movieId }), [movieId]);
+
   useEffect(() => {
     return () => {
       dispatch(cancelFetchReleases());
@@ -48,7 +50,7 @@ function MovieInteractiveSearchModalContent({
       </ModalHeader>
 
       <ModalBody scrollDirection={scrollDirections.BOTH}>
-        <InteractiveSearch searchPayload={{ movieId }} />
+        <InteractiveSearch searchPayload={searchPayload} />
       </ModalBody>
 
       <ModalFooter>
