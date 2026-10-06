@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using FluentAssertions;
@@ -8,7 +10,9 @@ using NUnit.Framework;
 using NzbDrone.Common.Http;
 using NzbDrone.Core.Indexers;
 using NzbDrone.Core.Indexers.Newznab;
+using NzbDrone.Core.IndexerSearch.Definitions;
 using NzbDrone.Core.Languages;
+using NzbDrone.Core.Movies;
 using NzbDrone.Core.Parser.Model;
 using NzbDrone.Core.Test.Framework;
 
@@ -63,6 +67,25 @@ namespace NzbDrone.Core.Test.IndexerTests.NewznabTests
             releaseInfo.Indexer.Should().Be(Subject.Definition.Name);
             releaseInfo.PublishDate.Should().Be(DateTime.Parse("2012/02/27 16:09:39"));
             releaseInfo.Size.Should().Be(1183105773);
+        }
+
+        [Test]
+        public async Task should_report_search_failure_to_search_criteria()
+        {
+            Mocker.GetMock<IHttpClient>()
+                .Setup(o => o.ExecuteAsync(It.IsAny<HttpRequest>()))
+                .ThrowsAsync(new WebException("Http request timed out", WebExceptionStatus.Timeout));
+
+            var criteria = new MovieSearchCriteria
+            {
+                Movie = new Movie { MovieMetadata = new MovieMetadata { Title = "Movie", ImdbId = "tt0000001", TmdbId = 1 } },
+                SceneTitles = new List<string> { "Movie" }
+            };
+
+            var releases = await Subject.Fetch(criteria);
+
+            releases.Should().BeEmpty();
+            criteria.IndexerFailures[5].Should().BeOfType<WebException>();
         }
 
         public void should_use_best_pagesize_reported_by_caps()

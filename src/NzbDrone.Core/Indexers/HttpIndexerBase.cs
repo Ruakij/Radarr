@@ -57,7 +57,7 @@ namespace NzbDrone.Core.Indexers
                 return Task.FromResult<IList<ReleaseInfo>>(Array.Empty<ReleaseInfo>());
             }
 
-            return FetchReleases(g => g.GetSearchRequests(searchCriteria));
+            return FetchReleases(g => g.GetSearchRequests(searchCriteria), false, searchCriteria);
         }
 
         protected IndexerPageableRequestChain GetRequestChain(SearchCriteriaBase searchCriteria = null)
@@ -92,7 +92,7 @@ namespace NzbDrone.Core.Indexers
             return new HttpRequest(link);
         }
 
-        protected virtual async Task<IList<ReleaseInfo>> FetchReleases(Func<IIndexerRequestGenerator, IndexerPageableRequestChain> pageableRequestChainSelector, bool isRecent = false)
+        protected virtual async Task<IList<ReleaseInfo>> FetchReleases(Func<IIndexerRequestGenerator, IndexerPageableRequestChain> pageableRequestChainSelector, bool isRecent = false, SearchCriteriaBase searchCriteria = null)
         {
             var releases = new List<ReleaseInfo>();
             var url = string.Empty;
@@ -191,6 +191,10 @@ namespace NzbDrone.Core.Indexers
 
                 _indexerStatusService.RecordSuccess(Definition.Id);
             }
+            catch (Exception ex) when (RecordSearchFailure(searchCriteria, ex))
+            {
+                // Never reached, the filter only records the failure for the search and the clauses below handle it
+            }
             catch (WebException webException)
             {
                 if (webException.Status is WebExceptionStatus.NameResolutionFailure or WebExceptionStatus.ConnectFailure)
@@ -274,6 +278,13 @@ namespace NzbDrone.Core.Indexers
             }
 
             return CleanupReleases(releases);
+        }
+
+        private bool RecordSearchFailure(SearchCriteriaBase searchCriteria, Exception ex)
+        {
+            searchCriteria?.IndexerFailures.TryAdd(Definition.Id, ex);
+
+            return false;
         }
 
         protected virtual bool IsValidRelease(ReleaseInfo release)
