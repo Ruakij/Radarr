@@ -57,6 +57,7 @@ namespace NzbDrone.Core.Configuration
         bool PreferIndexerFlags { get; set; }
 
         int AvailabilityDelay { get; set; }
+        int SearchConcurrency { get; set; }
 
         bool AllowHardcodedSubs { get; set; }
         string WhitelistedHardcodedSubs { get; set; }

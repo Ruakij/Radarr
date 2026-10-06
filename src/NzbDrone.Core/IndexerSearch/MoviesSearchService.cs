@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using NLog;
 using NzbDrone.Common.Instrumentation.Extensions;
+using NzbDrone.Core.Configuration;
 using NzbDrone.Core.Datastore;
 using NzbDrone.Core.DecisionEngine;
 using NzbDrone.Core.Download;
@@ -20,6 +21,7 @@ namespace NzbDrone.Core.IndexerSearch
         private readonly ISearchForReleases _releaseSearchService;
         private readonly IProcessDownloadDecisions _processDownloadDecisions;
         private readonly IQueueService _queueService;
+        private readonly IConfigService _configService;
         private readonly Logger _logger;
 
         public MovieSearchService(IMovieService movieService,
@@ -27,6 +29,7 @@ namespace NzbDrone.Core.IndexerSearch
                                    ISearchForReleases releaseSearchService,
                                    IProcessDownloadDecisions processDownloadDecisions,
                                    IQueueService queueService,
+                                   IConfigService configService,
                                    Logger logger)
         {
             _movieService = movieService;
@@ -34,6 +37,7 @@ namespace NzbDrone.Core.IndexerSearch
             _releaseSearchService = releaseSearchService;
             _processDownloadDecisions = processDownloadDecisions;
             _queueService = queueService;
+            _configService = configService;
             _logger = logger;
         }
 
@@ -91,28 +95,48 @@ namespace NzbDrone.Core.IndexerSearch
         private async Task SearchForBulkMovies(List<Movie> movies, bool userInvokedSearch)
         {
             _logger.ProgressInfo("Performing search for {0} movies", movies.Count);
-            var downloadedCount = 0;
+            var movieIds = movies.GroupBy(e => e.Id).OrderBy(g => g.Min(m => m.LastSearchTime ?? DateTime.MinValue)).Select(g => g.Key).ToList();
 
-            foreach (var movieId in movies.GroupBy(e => e.Id).OrderBy(g => g.Min(m => m.LastSearchTime ?? DateTime.MinValue)))
-            {
-                List<DownloadDecision> decisions;
-
-                try
-                {
-                    decisions = await _releaseSearchService.MovieSearch(movieId.Key, userInvokedSearch, false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.Error(ex, "Unable to search for movie: [{0}]", movieId.Key);
-                    continue;
-                }
-
-                var processDecisions = await _processDownloadDecisions.ProcessDecisions(decisions);
-
-                downloadedCount += processDecisions.Grabbed.Count;
-            }
+            var downloadedCount = await SearchAndProcess(movieIds,
+                _configService.SearchConcurrency,
+                movieId => SearchIndexers(movieId, userInvokedSearch),
+                async (movieId, decisions) => decisions == null ? 0 : (await _processDownloadDecisions.ProcessDecisions(decisions)).Grabbed.Count);
 
             _logger.ProgressInfo("Completed search for {0} movies. {1} reports downloaded.", movies.Count, downloadedCount);
+        }
+
+        private async Task<List<DownloadDecision>> SearchIndexers(int movieId, bool userInvokedSearch)
+        {
+            try
+            {
+                return await _releaseSearchService.MovieSearch(movieId, userInvokedSearch, false);
+            }
+            catch (Exception ex)
+            {
+                _logger.Error(ex, "Unable to search for movie: [{0}]", movieId);
+                return null;
+            }
+        }
+
+        // Runs up to `concurrency` searches at once and processes their results one after another in the given order,
+        // so grabs happen in the same order as in a sequential search. Returns the sum of the processed counts.
+        internal static async Task<int> SearchAndProcess<T, TResult>(IEnumerable<T> items, int concurrency, Func<T, Task<TResult>> search, Func<T, TResult, Task<int>> process)
+        {
+            var pending = items.ToList();
+            var searches = new List<Task<TResult>>();
+            var count = 0;
+
+            for (var i = 0; i < pending.Count; i++)
+            {
+                while (searches.Count < pending.Count && searches.Count < i + Math.Max(1, concurrency))
+                {
+                    searches.Add(search(pending[searches.Count]));
+                }
+
+                count += await process(pending[i], await searches[i]);
+            }
+
+            return count;
         }
     }
 }
