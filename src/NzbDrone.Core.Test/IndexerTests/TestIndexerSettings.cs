@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using NzbDrone.Core.Annotations;
 using NzbDrone.Core.Indexers;
 using NzbDrone.Core.Validation;
 
@@ -13,6 +14,9 @@ namespace NzbDrone.Core.Test.IndexerTests
         }
 
         public string BaseUrl { get; set; }
+
+        [FieldDefinition(1, Privacy = PrivacyLevel.ApiKey)]
+        public string ApiKey { get; set; }
 
         public IEnumerable<int> MultiLanguages { get; set; }
         public IEnumerable<int> FailDownloads { get; set; }

@@ -98,14 +98,14 @@ namespace NzbDrone.Core.IndexerSearch
             _logger.ProgressInfo("Performing search for {0} movies", movies.Count);
             var movieIds = movies.GroupBy(e => e.Id).OrderBy(g => g.Min(m => m.LastSearchTime ?? DateTime.MinValue)).Select(g => g.Key).ToList();
 
-            // Cached results are looked up ahead with the searches, a search runs ahead only for a movie without cached results
+            // Cached results are looked up ahead with the searches, a search runs ahead only for a movie not fully cached
             var downloadedCount = await SearchAndProcess(movieIds,
                 _configService.SearchConcurrency,
                 async movieId =>
                 {
                     var cached = useCache ? FindCachedSearch(movieId, userInvokedSearch) : null;
 
-                    return (Cached: cached, Decisions: cached == null ? await SearchIndexers(movieId, userInvokedSearch) : null);
+                    return (Cached: cached, Decisions: cached == null ? await SearchIndexers(movieId, userInvokedSearch, useCache) : null);
                 },
                 async (movieId, result) =>
                 {
@@ -128,7 +128,8 @@ namespace NzbDrone.Core.IndexerSearch
                             _logger.Debug("No cached search result for movie [{0}] is acceptable anymore, searching indexers", movieId);
                         }
 
-                        decisions = await SearchIndexers(movieId, userInvokedSearch);
+                        // The cache would answer with the same results
+                        decisions = await SearchIndexers(movieId, userInvokedSearch, false);
                     }
 
                     return decisions == null ? grabbedCount : grabbedCount + (await _processDownloadDecisions.ProcessDecisions(decisions)).Grabbed.Count;
@@ -165,11 +166,11 @@ namespace NzbDrone.Core.IndexerSearch
             return null;
         }
 
-        private async Task<List<DownloadDecision>> SearchIndexers(int movieId, bool userInvokedSearch)
+        private async Task<List<DownloadDecision>> SearchIndexers(int movieId, bool userInvokedSearch, bool useCache)
         {
             try
             {
-                return await _releaseSearchService.MovieSearch(movieId, userInvokedSearch, false);
+                return await _releaseSearchService.MovieSearch(movieId, userInvokedSearch, false, useCache);
             }
             catch (Exception ex)
             {

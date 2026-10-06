@@ -48,8 +48,8 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
                   .Returns(concurrency);
 
             Mocker.GetMock<ISearchForReleases>()
-                  .Setup(s => s.MovieSearch(It.IsAny<int>(), It.IsAny<bool>(), false))
-                  .Returns<int, bool, bool>(async (movieId, userInvokedSearch, interactiveSearch) =>
+                  .Setup(s => s.MovieSearch(It.IsAny<int>(), It.IsAny<bool>(), false, It.IsAny<bool>()))
+                  .Returns<int, bool, bool, bool>(async (movieId, userInvokedSearch, interactiveSearch, useCache) =>
                   {
                       onStart?.Invoke();
                       await Task.Delay((MovieCount - movieId + 1) * 20);
@@ -141,7 +141,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             processed.Should().BeEquivalentTo(expected, o => o.WithStrictOrdering());
             Mocker.GetMock<ISearchForReleases>()
-                  .Verify(v => v.MovieSearch(It.Is<int>(id => id == 2 || id == 4), It.IsAny<bool>(), It.IsAny<bool>()), Times.Never());
+                  .Verify(v => v.MovieSearch(It.Is<int>(id => id == 2 || id == 4), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>()), Times.Never());
             ExceptionVerification.IgnoreErrors();
         }
 
