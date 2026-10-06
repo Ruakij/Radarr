@@ -160,7 +160,9 @@ namespace Radarr.Api.V3.Indexers
                 var history = _historyService.FindByMovieId(movieId);
                 var releases = MapDecisions(prioritizedDecisions, history);
 
-                releases.ForEach(r => r.CachedAt = result.Status.CachedAt);
+                var cachedAt = result.Status.Indexers.ToDictionary(i => i.IndexerId, i => i.CachedAt);
+
+                releases.ForEach(r => r.CachedAt = cachedAt.GetValueOrDefault(r.IndexerId));
 
                 return releases;
             }

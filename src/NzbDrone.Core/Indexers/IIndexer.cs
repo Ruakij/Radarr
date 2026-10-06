@@ -16,5 +16,8 @@ namespace NzbDrone.Core.Indexers
         Task<IList<ReleaseInfo>> FetchRecent();
         Task<IList<ReleaseInfo>> Fetch(MovieSearchCriteria searchCriteria);
         HttpRequest GetDownloadRequest(string link);
+
+        // Identifies the requests a search sends, null when its results must not be cached
+        string GetSearchQueryKey(MovieSearchCriteria searchCriteria);
     }
 }

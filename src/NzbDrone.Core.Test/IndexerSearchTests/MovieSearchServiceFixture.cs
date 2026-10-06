@@ -26,6 +26,8 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
     [TestFixture]
     public class MovieSearchServiceFixture : CoreTest<MovieSearchService>
     {
+        private const string QueryKey = "1:q";
+
         private Movie _movie;
         private List<ReleaseInfo> _releases;
         private HashSet<string> _blocklistedGuids;
@@ -74,6 +76,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             _indexer.SetupGet(s => s.Definition).Returns(new IndexerDefinition { Id = 1 });
             _indexer.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>()))
                     .Returns(() => Task.FromResult<IList<ReleaseInfo>>(_releases.ToList()));
+            _indexer.Setup(s => s.GetSearchQueryKey(It.IsAny<MovieSearchCriteria>())).Returns("q");
 
             Mocker.GetMock<IIndexerFactory>()
                   .Setup(s => s.AutomaticSearchEnabled(true))
@@ -128,9 +131,9 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             _indexer.Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Exactly(count));
         }
 
-        private ICached<SearchResultCacheEntry> GetCache()
+        private ICached<IndexerQueryResult> GetCache()
         {
-            return Mocker.Resolve<ICacheManager>().GetCache<SearchResultCacheEntry>(typeof(ReleaseSearchService), "searchResults");
+            return Mocker.Resolve<ICacheManager>().GetCache<IndexerQueryResult>(typeof(ReleaseSearchService), "indexerQueries");
         }
 
         private void Search()
@@ -182,7 +185,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             SearchAndFail("guid1");
 
             var cache = GetCache();
-            cache.Set(_movie.Id.ToString(), cache.Find(_movie.Id.ToString()), TimeSpan.FromMilliseconds(-1));
+            cache.Set(QueryKey, cache.Find(QueryKey), TimeSpan.FromMilliseconds(-1));
 
             RedownloadFailed();
 
@@ -249,12 +252,12 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         [Test]
         public void should_clear_expired_cache_entries_when_caching()
         {
-            GetCache().Set("99", new SearchResultCacheEntry(_releases.ToList(), new HashSet<int> { 1 }, DateTime.UtcNow), TimeSpan.FromMilliseconds(-1));
+            GetCache().Set("99", new IndexerQueryResult(_releases.ToList(), DateTime.UtcNow), TimeSpan.FromMilliseconds(-1));
 
             SearchAndFail("guid1");
 
             GetCache().Count.Should().Be(1);
-            GetCache().Find(_movie.Id.ToString()).Should().NotBeNull();
+            GetCache().Find(QueryKey).Should().NotBeNull();
         }
 
         [Test]
@@ -321,14 +324,28 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             Search();
 
             VerifySearchCount(2);
-            GetCache().Find(_movie.Id.ToString()).Releases.Should().Contain(r => r.Guid == "guid4");
+            GetCache().Find(QueryKey).Releases.Should().Contain(r => r.Guid == "guid4");
         }
 
         [Test]
         public void should_ignore_cached_releases_of_indexers_no_longer_enabled()
         {
-            _releases[1].IndexerId = 2;
+            var disabled = new Mock<IIndexer>();
+            disabled.SetupGet(s => s.Definition).Returns(new IndexerDefinition { Id = 2 });
+            disabled.Setup(s => s.GetSearchQueryKey(It.IsAny<MovieSearchCriteria>())).Returns("q");
+            disabled.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>()))
+                    .Returns(() => Task.FromResult<IList<ReleaseInfo>>(new List<ReleaseInfo> { new ReleaseInfo { IndexerId = 2, Guid = "guid2", Title = "Movie.2024.Release2", DownloadProtocol = DownloadProtocol.Usenet } }));
+            _releases.RemoveAt(1);
+
+            Mocker.GetMock<IIndexerFactory>()
+                  .Setup(s => s.AutomaticSearchEnabled(true))
+                  .Returns(new List<IIndexer> { _indexer.Object, disabled.Object });
+
             SearchAndFail("guid1");
+
+            Mocker.GetMock<IIndexerFactory>()
+                  .Setup(s => s.AutomaticSearchEnabled(true))
+                  .Returns(new List<IIndexer> { _indexer.Object });
 
             RedownloadFailed();
 
