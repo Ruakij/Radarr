@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo } from 'react';
-import { Navigation } from 'swiper/modules';
+import { Navigation, Virtual } from 'swiper/modules';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Swiper as SwiperClass } from 'swiper/types';
 import dimensions from 'Styles/Variables/dimensions';
@@ -57,25 +57,26 @@ function MovieCreditPosters(props: MovieCreditPostersProps) {
         navigation={true}
         loop={false}
         className="mySwiper"
-        modules={[Navigation]}
+        modules={[Navigation, Virtual]}
+        // Renders only the slides in view, Swiper sizes them to posterWidth.
+        virtual={{ slidesPerViewAutoSlideSize: posterWidth }}
         onInit={handleSwiperInit}
       >
-        {items.map((credit) => (
-          <SwiperSlide
-            key={credit.id}
-            style={{ width: posterWidth, height: rowHeight }}
-          >
-            <MovieCreditPoster
-              key={credit.id}
-              component={itemComponent}
-              posterWidth={posterWidth}
-              posterHeight={posterHeight}
-              tmdbId={credit.personTmdbId}
-              personName={credit.personName}
-              images={credit.images}
-              job={credit.job}
-              character={credit.character}
-            />
+        {items.map((credit, index) => (
+          <SwiperSlide key={credit.id} virtualIndex={index}>
+            <div style={{ height: rowHeight }}>
+              <MovieCreditPoster
+                key={credit.id}
+                component={itemComponent}
+                posterWidth={posterWidth}
+                posterHeight={posterHeight}
+                tmdbId={credit.personTmdbId}
+                personName={credit.personName}
+                images={credit.images}
+                job={credit.job}
+                character={credit.character}
+              />
+            </div>
           </SwiperSlide>
         ))}
       </Swiper>
