@@ -208,6 +208,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
                 mock.SetupGet(s => s.Definition).Returns(new IndexerDefinition { Id = i + 1 });
                 mock.Setup(s => s.GetSearchQueryKey(It.IsAny<MovieSearchCriteria>())).Returns("q");
                 mock.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>()))
+                    .Callback<MovieSearchCriteria>(c => c.IndexerRequestCounts.TryAdd(i + 1, 1))
                     .Returns(() => indexer.DelayMs == Timeout.Infinite
                         ? _neverAnswers.Task
                         : FetchDelayed(indexer.DelayMs, new ReleaseInfo { IndexerId = i + 1, Title = indexer.Title, Guid = indexer.Title }));
@@ -562,7 +563,9 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         {
             Mocker.SetConstant<ICacheManager>(Mocker.Resolve<CacheManager>());
             var indexers = GivenIndexers((100, "A", Quality.SDTV, 0), (0, "B", Quality.SDTV, 0));
-            Mock.Get(indexers[1]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new Exception("Indexer failed"));
+            Mock.Get(indexers[1]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>()))
+                .Callback<MovieSearchCriteria>(c => c.IndexerRequestCounts.TryAdd(2, 3))
+                .ThrowsAsync(new Exception("Indexer failed"));
 
             await Subject.InteractiveMovieSearch(_movie.Id, false, false);
             await Subject.InteractiveMovieSearch(_movie.Id, true, false);
@@ -574,8 +577,8 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             status[0].History.Count.Should().Be(2);
             status[0].History.LowMs.Should().BeGreaterOrEqualTo(90);
 
-            // Failed queries count for the search but not for the history
-            status[1].QueryCount.Should().Be(1);
+            // Failed queries count for the search but not for the history, every request counts
+            status[1].QueryCount.Should().Be(3);
             status[1].MedianResponseMs.Should().NotBeNull();
             status[1].History.Should().BeNull();
             ExceptionVerification.ExpectedErrors(2);

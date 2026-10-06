@@ -380,7 +380,7 @@ namespace NzbDrone.Core.IndexerSearch
                 var times = queryTimes.TryGetValue(id, out var queue) ? queue.ToList() : new List<IndexerQueryTime>();
                 var status = GetStatus(indexer, IndexerSearchStatusType.Searched, reports) with
                 {
-                    QueryCount = times.Count > 0 ? times.Count : null,
+                    QueryCount = criteriaBase.IndexerRequestCounts.TryGetValue(id, out var requestCount) ? requestCount : null,
                     MedianResponseMs = times.Count > 0 ? IndexerResponseTimeHistory.Median(times.Select(t => t.DurationMs)) : null
                 };
 
