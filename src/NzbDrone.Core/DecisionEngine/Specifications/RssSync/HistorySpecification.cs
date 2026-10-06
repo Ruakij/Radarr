@@ -46,7 +46,7 @@ namespace NzbDrone.Core.DecisionEngine.Specifications.RssSync
             _logger.Debug("Performing history status check on report");
 
             _logger.Debug("Checking current status of movie [{0}] in history", subject.Movie.Id);
-            var mostRecent = _historyService.MostRecentForMovie(subject.Movie.Id);
+            var mostRecent = DecisionRunCache.Get($"history:mostRecent:{subject.Movie.Id}", () => _historyService.MostRecentForMovie(subject.Movie.Id));
 
             if (mostRecent != null && mostRecent.EventType == MovieHistoryEventType.Grabbed)
             {
@@ -57,7 +57,7 @@ namespace NzbDrone.Core.DecisionEngine.Specifications.RssSync
                     return DownloadSpecDecision.Accept();
                 }
 
-                var customFormats = _formatService.ParseCustomFormat(mostRecent, subject.Movie);
+                var customFormats = DecisionRunCache.Get($"customFormats:history:{mostRecent.Id}", () => _formatService.ParseCustomFormat(mostRecent, subject.Movie));
 
                 var cutoffUnmet = _upgradableSpecification.CutoffNotMet(
                     subject.Movie.QualityProfile,

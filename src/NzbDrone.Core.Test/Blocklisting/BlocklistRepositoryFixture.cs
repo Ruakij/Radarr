@@ -5,6 +5,7 @@ using FizzWare.NBuilder;
 using FluentAssertions;
 using NUnit.Framework;
 using NzbDrone.Core.Blocklisting;
+using NzbDrone.Core.Datastore;
 using NzbDrone.Core.Languages;
 using NzbDrone.Core.Movies;
 using NzbDrone.Core.Qualities;
@@ -87,6 +88,51 @@ namespace NzbDrone.Core.Test.Blocklisting
 
             removedMovieBlocklists.Should().HaveCount(0);
             nonRemovedMovieBlocklists.Should().HaveCount(1);
+        }
+
+        [Test]
+        public void in_memory_like_should_match_the_same_rows_as_the_title_and_hash_queries()
+        {
+            if (Db.DatabaseType == DatabaseType.PostgreSQL)
+            {
+                Assert.Ignore("In memory matching is used with SQLite only");
+            }
+
+            var titles = new[]
+            {
+                "Movie.Title.1998.1080p.BluRay-GRP", "movie_title_1998", "Movie%Title 50%", "ÄRGER.im.Paradies.2020", "Straße.2021",
+                "Film \U0001F3AC Night", "abc", "ABC.[Release] (x)", "Movie.Title.1998"
+            };
+
+            var blocklist = titles.Select((t, i) => new Blocklist
+                {
+                    MovieId = 7,
+                    Quality = new QualityModel(),
+                    Languages = new List<Language>(),
+                    SourceTitle = t,
+                    TorrentInfoHash = i % 3 == 0 ? null : (i % 2 == 0 ? "ABCDEF" : "abc_def") + i,
+                    Date = DateTime.UtcNow
+                })
+                .ToList();
+
+            Db.InsertMany(blocklist);
+
+            var rows = Subject.All().Where(b => b.MovieId == 7).ToList();
+
+            var patterns = new[]
+            {
+                "movie.title.1998", "MOVIE.TITLE", "movie_title", "Movie%Title", "_ovie", "%", "_", "", "ärger", "ÄRGER", "STRASSE", "straße",
+                "\U0001F3AC", "m_\U0001F3AC", "Film _ Night", "[release]", "(X)", "x", "Title.1998.1080p", "abcdef", "C_D", "ef2", "abc%2"
+            };
+
+            foreach (var pattern in patterns)
+            {
+                Subject.BlocklistedByTitle(7, pattern).Select(b => b.Id).Should()
+                    .BeEquivalentTo(rows.Where(b => SqliteLike.Contains(b.SourceTitle, pattern)).Select(b => b.Id), "title pattern {0}", pattern);
+
+                Subject.BlocklistedByTorrentInfoHash(7, pattern).Select(b => b.Id).Should()
+                    .BeEquivalentTo(rows.Where(b => SqliteLike.Contains(b.TorrentInfoHash, pattern)).Select(b => b.Id), "hash pattern {0}", pattern);
+            }
         }
     }
 }

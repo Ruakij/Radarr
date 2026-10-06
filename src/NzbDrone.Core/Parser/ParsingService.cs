@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using NLog;
 using NzbDrone.Common.Extensions;
+using NzbDrone.Core.DecisionEngine;
 using NzbDrone.Core.IndexerSearch.Definitions;
 using NzbDrone.Core.Movies;
 using NzbDrone.Core.Parser.Model;
@@ -130,12 +131,12 @@ namespace NzbDrone.Core.Parser
 
             if (!string.IsNullOrWhiteSpace(imdbId) && imdbId != "0")
             {
-                result = TryGetMovieByImDbId(parsedMovieInfo, imdbId);
+                result = TryGetMovieByImDbId(parsedMovieInfo, imdbId, searchCriteria);
             }
 
             if (result == null && tmdbId > 0)
             {
-                result = TryGetMovieByTmdbId(parsedMovieInfo, tmdbId);
+                result = TryGetMovieByTmdbId(parsedMovieInfo, tmdbId, searchCriteria);
             }
 
             if (result == null)
@@ -158,9 +159,9 @@ namespace NzbDrone.Core.Parser
             return result;
         }
 
-        private FindMovieResult TryGetMovieByImDbId(ParsedMovieInfo parsedMovieInfo, string imdbId)
+        private FindMovieResult TryGetMovieByImDbId(ParsedMovieInfo parsedMovieInfo, string imdbId, SearchCriteriaBase searchCriteria)
         {
-            var movie = _movieService.FindByImdbId(imdbId);
+            var movie = DecisionRunCache.Get($"movie:imdb:{imdbId}", () => SearchedMovieOrSelf(_movieService.FindByImdbId(imdbId), searchCriteria));
 
             // Should fix practically all problems, where indexer is shite at adding correct imdbids to movies.
             if (movie != null && (parsedMovieInfo.Year < 1800 || movie.MovieMetadata.Value.Year == parsedMovieInfo.Year || movie.MovieMetadata.Value.SecondaryYear == parsedMovieInfo.Year))
@@ -171,9 +172,9 @@ namespace NzbDrone.Core.Parser
             return null;
         }
 
-        private FindMovieResult TryGetMovieByTmdbId(ParsedMovieInfo parsedMovieInfo, int tmdbId)
+        private FindMovieResult TryGetMovieByTmdbId(ParsedMovieInfo parsedMovieInfo, int tmdbId, SearchCriteriaBase searchCriteria)
         {
-            var movie = _movieService.FindByTmdbId(tmdbId);
+            var movie = DecisionRunCache.Get($"movie:tmdb:{tmdbId}", () => SearchedMovieOrSelf(_movieService.FindByTmdbId(tmdbId), searchCriteria));
 
             // Should fix practically all problems, where indexer is shite at adding correct imdbids to movies.
             if (movie != null && (parsedMovieInfo.Year < 1800 || movie.MovieMetadata.Value.Year == parsedMovieInfo.Year || movie.MovieMetadata.Value.SecondaryYear == parsedMovieInfo.Year))
@@ -182,9 +183,20 @@ namespace NzbDrone.Core.Parser
             }
 
             return null;
+        }
+
+        // Sharing the searched movie lets its lazy loaded file and profile load once for all releases of the search.
+        private static Movie SearchedMovieOrSelf(Movie movie, SearchCriteriaBase searchCriteria)
+        {
+            return movie != null && searchCriteria?.Movie != null && movie.Id == searchCriteria.Movie.Id ? searchCriteria.Movie : movie;
         }
 
         private FindMovieResult TryGetMovieByTitleAndOrYear(ParsedMovieInfo parsedMovieInfo)
+        {
+            return DecisionRunCache.Get($"movie:title:{parsedMovieInfo.Year}:{string.Join("\n", parsedMovieInfo.MovieTitles)}", () => FindMovieByTitleAndOrYear(parsedMovieInfo));
+        }
+
+        private FindMovieResult FindMovieByTitleAndOrYear(ParsedMovieInfo parsedMovieInfo)
         {
             var candidates = _movieService.FindByTitleCandidates(parsedMovieInfo.MovieTitles, out var otherTitles);
 

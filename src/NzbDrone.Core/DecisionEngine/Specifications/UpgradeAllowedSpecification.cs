@@ -38,7 +38,7 @@ namespace NzbDrone.Core.DecisionEngine.Specifications
                 }
 
                 file.Movie = subject.Movie;
-                var customFormats = _formatService.ParseCustomFormat(file);
+                var customFormats = DecisionRunCache.Get($"customFormats:file:{file.Id}", () => _formatService.ParseCustomFormat(file));
                 _logger.Debug("Comparing file quality with report. Existing file is {0} [{1}]", file.Quality, customFormats.ConcatToString());
 
                 if (!_upgradableSpecification.IsUpgradeAllowed(qualityProfile,

@@ -175,6 +175,63 @@ namespace NzbDrone.Mono.Test.DiskProviderTests
             mount.RootDirectory.Should().Be(rootDir);
         }
 
+        private Mock<IMount> GivenMount(string rootDir, long freeSpace)
+        {
+            var mount = new Mock<IMount>();
+            mount.SetupGet(v => v.RootDirectory).Returns(rootDir);
+            mount.SetupGet(v => v.AvailableFreeSpace).Returns(freeSpace);
+
+            Mocker.GetMock<ISymbolicLinkResolver>()
+                .Setup(v => v.GetCompleteRealPath(It.IsAny<string>()))
+                .Returns<string>(s => s);
+
+            Mocker.GetMock<IProcMountProvider>()
+                .Setup(v => v.GetMounts())
+                .Returns(new List<IMount> { mount.Object });
+
+            return mount;
+        }
+
+        [Test]
+        public void should_list_mounts_once_within_cache_lifetime_and_read_current_free_space()
+        {
+            var mount = GivenMount("/perf-test-mount", 100);
+
+            Subject.GetAvailableSpace("/perf-test-mount/movies").Should().Be(100);
+
+            mount.SetupGet(v => v.AvailableFreeSpace).Returns(40);
+            GivenMount("/perf-test-other", 7);
+
+            Subject.GetAvailableSpace("/perf-test-mount/movies").Should().Be(40);
+            Subject.GetMounts().Select(d => d.RootDirectory).Should().Contain("/perf-test-mount");
+
+            Mocker.GetMock<IProcMountProvider>().Verify(v => v.GetMounts(), Times.Once());
+        }
+
+        [Test]
+        public void should_list_mounts_again_after_cache_lifetime()
+        {
+            var subject = Mocker.Resolve<ExpiringMountsDiskProvider>();
+
+            GivenMount("/perf-test-mount", 100);
+            subject.GetAvailableSpace("/perf-test-mount/movies").Should().Be(100);
+
+            GivenMount("/perf-test-mount/movies", 30);
+            subject.GetAvailableSpace("/perf-test-mount/movies").Should().Be(30);
+
+            Mocker.GetMock<IProcMountProvider>().Verify(v => v.GetMounts(), Times.Exactly(2));
+        }
+
+        public class ExpiringMountsDiskProvider : DiskProvider
+        {
+            public ExpiringMountsDiskProvider(IProcMountProvider procMountProvider, ISymbolicLinkResolver symLinkResolver, ICreateRefLink createRefLink, NLog.Logger logger)
+                : base(procMountProvider, symLinkResolver, createRefLink, logger)
+            {
+            }
+
+            protected override TimeSpan MountCacheLifetime => TimeSpan.Zero;
+        }
+
         [Test]
         public void should_copy_folder_permissions()
         {

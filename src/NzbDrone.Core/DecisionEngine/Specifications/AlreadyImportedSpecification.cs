@@ -47,7 +47,7 @@ namespace NzbDrone.Core.DecisionEngine.Specifications
                     return DownloadSpecDecision.Accept();
                 }
 
-                var historyForMovie = _historyService.GetByMovieId(movie.Id, null);
+                var historyForMovie = DecisionRunCache.Get($"history:{movie.Id}", () => _historyService.GetByMovieId(movie.Id, null));
                 var lastGrabbed = historyForMovie.FirstOrDefault(h => h.EventType == MovieHistoryEventType.Grabbed);
 
                 if (lastGrabbed == null)

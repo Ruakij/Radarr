@@ -22,6 +22,10 @@ namespace NzbDrone.Core.Profiles.Releases
         private readonly IReleaseProfileRepository _repo;
         private readonly Logger _logger;
 
+        // The decision engine reads the profiles for every release; they change only through this service.
+        private readonly object _profilesLock = new();
+        private List<ReleaseProfile> _profiles;
+
         public ReleaseProfileService(IReleaseProfileRepository repo, Logger logger)
         {
             _repo = repo;
@@ -30,19 +34,22 @@ namespace NzbDrone.Core.Profiles.Releases
 
         public List<ReleaseProfile> All()
         {
-            var all = _repo.All().ToList();
+            lock (_profilesLock)
+            {
+                _profiles ??= _repo.All().ToList();
 
-            return all;
+                return _profiles.ToList();
+            }
         }
 
         public List<ReleaseProfile> AllForTag(int tagId)
         {
-            return _repo.All().Where(r => r.Tags.Contains(tagId)).ToList();
+            return All().Where(r => r.Tags.Contains(tagId)).ToList();
         }
 
         public List<ReleaseProfile> AllForTags(HashSet<int> tagIds)
         {
-            return _repo.All().Where(r => r.Tags.Intersect(tagIds).Any() || r.Tags.Empty()).ToList();
+            return All().Where(r => r.Tags.Intersect(tagIds).Any() || r.Tags.Empty()).ToList();
         }
 
         public List<ReleaseProfile> EnabledForTags(HashSet<int> tagIds, int indexerId)
@@ -60,16 +67,31 @@ namespace NzbDrone.Core.Profiles.Releases
         public void Delete(int id)
         {
             _repo.Delete(id);
+            ClearProfiles();
         }
 
         public ReleaseProfile Add(ReleaseProfile restriction)
         {
-            return _repo.Insert(restriction);
+            var result = _repo.Insert(restriction);
+            ClearProfiles();
+
+            return result;
         }
 
         public ReleaseProfile Update(ReleaseProfile restriction)
         {
-            return _repo.Update(restriction);
+            var result = _repo.Update(restriction);
+            ClearProfiles();
+
+            return result;
+        }
+
+        private void ClearProfiles()
+        {
+            lock (_profilesLock)
+            {
+                _profiles = null;
+            }
         }
     }
 }
