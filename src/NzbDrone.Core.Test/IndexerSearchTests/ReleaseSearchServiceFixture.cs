@@ -43,6 +43,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             _mockIndexer = Mocker.GetMock<IIndexer>();
             _mockIndexer.SetupGet(s => s.Definition).Returns(new IndexerDefinition { Id = 1 });
             _mockIndexer.SetupGet(s => s.SupportsSearch).Returns(true);
+            _mockIndexer.Setup(s => s.GetSearchQueryKey(It.IsAny<MovieSearchCriteria>())).Returns("q");
 
             Mocker.GetMock<IIndexerFactory>()
                   .Setup(s => s.AutomaticSearchEnabled(true))
@@ -98,7 +99,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             var allCriteria = WatchForSearchCriteria();
 
-            await Subject.MovieSearch(_movie, true, false);
+            await Subject.MovieSearch(_movie, true, false, true);
 
             var criteria = allCriteria.OfType<MovieSearchCriteria>().ToList();
 
@@ -124,7 +125,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             var allCriteria = WatchForSearchCriteria();
 
-            await Subject.MovieSearch(_movie, true, false);
+            await Subject.MovieSearch(_movie, true, false, true);
 
             var criteria = allCriteria.OfType<MovieSearchCriteria>().ToList();
 
@@ -151,7 +152,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             var allCriteria = WatchForSearchCriteria();
 
-            await Subject.MovieSearch(_movie, true, false);
+            await Subject.MovieSearch(_movie, true, false, true);
 
             var criteria = allCriteria.OfType<MovieSearchCriteria>().ToList();
 
@@ -178,7 +179,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
             var allCriteria = WatchForSearchCriteria();
 
-            await Subject.MovieSearch(_movie, true, false);
+            await Subject.MovieSearch(_movie, true, false, true);
 
             var criteria = allCriteria.OfType<MovieSearchCriteria>().ToList();
 
@@ -205,6 +206,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             {
                 var mock = new Mock<IIndexer>();
                 mock.SetupGet(s => s.Definition).Returns(new IndexerDefinition { Id = i + 1 });
+                mock.Setup(s => s.GetSearchQueryKey(It.IsAny<MovieSearchCriteria>())).Returns("q");
                 mock.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>()))
                     .Returns(() => indexer.DelayMs == Timeout.Infinite
                         ? _neverAnswers.Task
@@ -269,7 +271,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
 
         private async Task<List<string>> SearchTitles(bool interactiveSearch = false)
         {
-            var decisions = await Subject.MovieSearch(_movie, true, interactiveSearch);
+            var decisions = await Subject.MovieSearch(_movie, true, interactiveSearch, true);
 
             return Titles(decisions);
         }
@@ -278,6 +280,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         {
             var indexer = new Mock<IIndexer>();
             indexer.SetupGet(s => s.Definition).Returns(new IndexerDefinition { Id = id });
+            indexer.Setup(s => s.GetSearchQueryKey(It.IsAny<MovieSearchCriteria>())).Returns("q");
             indexer.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>()))
                    .Returns(() => Task.FromResult<IList<ReleaseInfo>>(titles.Select(t => new ReleaseInfo { IndexerId = id, Title = t, Guid = t }).ToList()));
 
@@ -508,23 +511,6 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             Mock.Get(indexers[2]).Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Never());
         }
 
-        [Test]
-        public async Task should_serve_interactive_search_from_cache_of_searched_priority_groups()
-        {
-            Mocker.SetConstant<ICacheManager>(Mocker.Resolve<CacheManager>());
-            Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchResultCacheLifetime).Returns(60);
-            GivenEarlySearchReturn(0);
-            GivenPriorityGroups((1, "Good", Quality.Bluray1080p, 10), (2, "Lower", Quality.SDTV, 0));
-
-            await SearchTitles();
-
-            Titles(Subject.CachedMovieSearch(_movie.Id, true, true).Decisions).Should().BeEquivalentTo("Good");
-
-            Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchIndexersInPriorityOrder).Returns(false);
-
-            Subject.CachedMovieSearch(_movie.Id, true, true).Should().BeNull();
-        }
-
         private static List<IndexerSearchStatusType> Statuses(InteractiveSearchResult result)
         {
             return result.Status.Indexers.OrderBy(s => s.IndexerId).Select(s => s.Status).ToList();
@@ -533,7 +519,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         [Test]
         public async Task should_report_skipped_indexers_and_search_them_when_searching_remaining()
         {
-            Mocker.SetConstant<ICacheManager>(Mocker.Resolve<CacheManager>());
+            GivenQueryCache();
             GivenEarlySearchReturn(0);
             var indexers = GivenPriorityGroups((1, "Good", Quality.Bluray1080p, 10), (2, "Lower", Quality.SDTV, 0));
 
@@ -554,7 +540,7 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
         [Test]
         public async Task should_report_failed_and_timed_out_indexers_and_search_them_again_when_searching_remaining()
         {
-            Mocker.SetConstant<ICacheManager>(Mocker.Resolve<CacheManager>());
+            GivenQueryCache();
             var indexers = GivenIndexers((0, "A", Quality.SDTV, 0), (0, "B", Quality.SDTV, 0), (0, "C", Quality.SDTV, 0));
             Mock.Get(indexers[1]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new Exception("Indexer failed"));
             Mock.Get(indexers[2]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new WebException("Http request timed out", WebExceptionStatus.Timeout));
@@ -638,150 +624,241 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             titles.Should().BeEquivalentTo("Fast", "Slow");
         }
 
-        [Test]
-        public async Task should_cache_releases_of_early_returned_search()
+        private void GivenQueryCache()
         {
             Mocker.SetConstant<ICacheManager>(Mocker.Resolve<CacheManager>());
-            Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchResultCacheLifetime).Returns(60);
+            Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchResultCacheLifetime).Returns(15);
+        }
 
-            GivenEarlySearchReturn(0);
-            GivenIndexers((0, "Fast", Quality.Bluray1080p, 10), (Timeout.Infinite, "Slow", Quality.Bluray2160p, 100));
+        private ICached<IndexerQueryResult> QueryCache => Mocker.Resolve<ICacheManager>().GetCache<IndexerQueryResult>(typeof(ReleaseSearchService), "indexerQueries");
+
+        private void GivenCachedQuery(int indexerId, string title, DateTime fetchedAt)
+        {
+            QueryCache.Set($"{indexerId}:q", new IndexerQueryResult(new List<ReleaseInfo> { new ReleaseInfo { IndexerId = indexerId, Title = title, Guid = title } }, fetchedAt), TimeSpan.FromMinutes(60));
+        }
+
+        private static void VerifyFetched(IIndexer indexer, int times)
+        {
+            Mock.Get(indexer).Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Exactly(times));
+        }
+
+        [Test]
+        public async Task should_serve_query_from_cache_until_its_requests_change()
+        {
+            GivenQueryCache();
+            var indexers = GivenIndexers((0, "A", Quality.SDTV, 0));
+
+            (await SearchTitles()).Should().BeEquivalentTo("A");
+            (await SearchTitles()).Should().BeEquivalentTo("A");
+            VerifyFetched(indexers[0], 1);
+
+            Mock.Get(indexers[0]).Setup(s => s.GetSearchQueryKey(It.IsAny<MovieSearchCriteria>())).Returns("other");
+
+            (await SearchTitles()).Should().BeEquivalentTo("A");
+            VerifyFetched(indexers[0], 2);
+        }
+
+        [Test]
+        public async Task should_not_cache_queries_when_cache_is_disabled()
+        {
+            Mocker.SetConstant<ICacheManager>(Mocker.Resolve<CacheManager>());
+            var indexers = GivenIndexers((0, "A", Quality.SDTV, 0));
 
             await SearchTitles();
+            await SearchTitles();
 
-            Titles(Subject.CachedMovieSearch(_movie.Id, false, false).Decisions).Should().BeEquivalentTo("Fast");
-            Subject.CachedMovieSearch(_movie.Id, true, true).Should().BeNull();
+            VerifyFetched(indexers[0], 2);
         }
 
         [Test]
-        public async Task should_serve_interactive_search_from_cache()
+        public async Task should_share_cached_query_between_searches_with_the_same_requests()
         {
-            var indexer = GivenCachedIndexer(1, "A", "B");
-            GivenSearchResultCache(new List<Mock<IIndexer>> { indexer }, new List<Mock<IIndexer>> { indexer });
+            GivenQueryCache();
+            var indexers = GivenIndexers((0, "A", Quality.SDTV, 0));
 
-            await Subject.MovieSearch(_movie, true, true);
+            await SearchTitles();
+            var interactive = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
 
-            var cached = Subject.CachedMovieSearch(_movie.Id, true, true);
-
-            cached.Should().NotBeNull();
-            Titles(cached.Decisions).Should().BeEquivalentTo("A", "B");
-            cached.SearchedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromMinutes(1));
-            indexer.Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Once());
+            Titles(interactive.Decisions).Should().BeEquivalentTo("A");
+            Statuses(interactive).Should().Equal(IndexerSearchStatusType.Cached);
+            VerifyFetched(indexers[0], 1);
         }
 
         [Test]
-        public async Task should_always_search_indexers_when_bypassing_cache()
+        public async Task should_send_only_queries_missing_from_cache()
         {
-            var indexer = GivenCachedIndexer(1, "A");
-            GivenSearchResultCache(new List<Mock<IIndexer>> { indexer }, new List<Mock<IIndexer>> { indexer });
+            GivenQueryCache();
+            var indexers = GivenIndexers((0, "A", Quality.SDTV, 0), (0, "B", Quality.SDTV, 0));
+            var fetchedAt = DateTime.UtcNow.AddMinutes(-5);
+            GivenCachedQuery(1, "A", fetchedAt);
 
-            await Subject.MovieSearch(_movie, true, true);
-            await Subject.MovieSearch(_movie, true, true);
+            var result = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
 
-            indexer.Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Exactly(2));
+            Titles(result.Decisions).Should().BeEquivalentTo("A", "B");
+            VerifyFetched(indexers[0], 0);
+            VerifyFetched(indexers[1], 1);
+
+            var status = result.Status.Indexers.OrderBy(s => s.IndexerId).ToList();
+            Statuses(result).Should().Equal(IndexerSearchStatusType.Cached, IndexerSearchStatusType.Searched);
+            status[0].CachedAt.Should().Be(fetchedAt);
+            status[0].QueryCount.Should().BeNull();
+            status[1].CachedAt.Should().BeNull();
+            status[1].QueryCount.Should().Be(1);
+            result.Status.CachedAt.Should().Be(fetchedAt);
         }
 
         [Test]
-        public async Task should_not_serve_interactive_search_from_cache_missing_results_of_an_indexer()
+        public async Task should_report_oldest_cached_query()
         {
-            var automatic = GivenCachedIndexer(1, "A");
-            var interactiveOnly = GivenCachedIndexer(2, "B");
-            GivenSearchResultCache(new List<Mock<IIndexer>> { automatic }, new List<Mock<IIndexer>> { automatic, interactiveOnly });
+            GivenQueryCache();
+            GivenIndexers((0, "A", Quality.SDTV, 0), (0, "B", Quality.SDTV, 0));
+            var older = DateTime.UtcNow.AddMinutes(-10);
+            GivenCachedQuery(1, "A", DateTime.UtcNow.AddMinutes(-2));
+            GivenCachedQuery(2, "B", older);
 
-            await Subject.MovieSearch(_movie, false, false);
+            var result = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
 
-            Subject.CachedMovieSearch(_movie.Id, true, true).Should().BeNull();
-            Titles(Subject.CachedMovieSearch(_movie.Id, false, false).Decisions).Should().BeEquivalentTo("A");
+            Statuses(result).Should().Equal(IndexerSearchStatusType.Cached, IndexerSearchStatusType.Cached);
+            result.Status.CachedAt.Should().Be(older);
         }
 
         [Test]
-        public async Task should_not_serve_results_of_interactive_only_indexers_to_automatic_search()
+        public async Task should_expire_each_query_at_its_own_fetch_time()
         {
-            var automatic = GivenCachedIndexer(1, "A");
-            var interactiveOnly = GivenCachedIndexer(2, "B");
-            GivenSearchResultCache(new List<Mock<IIndexer>> { automatic }, new List<Mock<IIndexer>> { automatic, interactiveOnly });
+            GivenQueryCache();
+            var indexers = GivenIndexers((0, "A", Quality.SDTV, 0), (0, "B", Quality.SDTV, 0));
+            var recent = DateTime.UtcNow.AddMinutes(-5);
+            GivenCachedQuery(1, "A", DateTime.UtcNow.AddMinutes(-20));
+            GivenCachedQuery(2, "B", recent);
 
-            await Subject.MovieSearch(_movie, true, true);
+            (await SearchTitles()).Should().BeEquivalentTo("A", "B");
+            (await SearchTitles()).Should().BeEquivalentTo("A", "B");
 
-            Titles(Subject.CachedMovieSearch(_movie.Id, false, false).Decisions).Should().BeEquivalentTo("A");
-            Titles(Subject.CachedMovieSearch(_movie.Id, true, true).Decisions).Should().BeEquivalentTo("A", "B");
+            VerifyFetched(indexers[0], 1);
+            VerifyFetched(indexers[1], 0);
+
+            // A hit does not extend the lifetime of the query
+            QueryCache.Find("2:q").FetchedAt.Should().Be(recent);
         }
 
         [Test]
-        public async Task should_not_serve_expired_search_results()
+        public async Task should_not_cache_failed_queries()
         {
-            var indexer = GivenCachedIndexer(1, "A");
-            GivenSearchResultCache(new List<Mock<IIndexer>> { indexer }, new List<Mock<IIndexer>> { indexer });
+            GivenQueryCache();
+            var indexers = GivenIndexers((0, "A", Quality.SDTV, 0), (0, "B", Quality.SDTV, 0));
+            Mock.Get(indexers[0]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new Exception("Indexer failed"));
+            Mock.Get(indexers[1]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>()))
+                .Callback<MovieSearchCriteria>(c => c.IndexerFailures.TryAdd(2, new WebException("Http request timed out", WebExceptionStatus.Timeout)))
+                .ReturnsAsync(new List<ReleaseInfo>());
 
-            await Subject.MovieSearch(_movie, true, true);
+            await SearchTitles();
+            await SearchTitles();
 
-            var cache = Mocker.Resolve<ICacheManager>().GetCache<SearchResultCacheEntry>(typeof(ReleaseSearchService), "searchResults");
-            cache.Set(_movie.Id.ToString(), cache.Find(_movie.Id.ToString()), TimeSpan.FromMilliseconds(-1));
-
-            Subject.CachedMovieSearch(_movie.Id, true, true).Should().BeNull();
+            VerifyFetched(indexers[0], 2);
+            VerifyFetched(indexers[1], 2);
+            ExceptionVerification.ExpectedErrors(2);
         }
 
         [Test]
-        public async Task should_not_serve_search_results_when_cache_is_disabled()
+        public async Task should_cache_empty_result()
         {
-            var indexer = GivenCachedIndexer(1, "A");
-            GivenSearchResultCache(new List<Mock<IIndexer>> { indexer }, new List<Mock<IIndexer>> { indexer });
+            GivenQueryCache();
+            var indexers = GivenIndexers((0, "A", Quality.SDTV, 0));
+            Mock.Get(indexers[0]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ReturnsAsync(new List<ReleaseInfo>());
 
-            await Subject.MovieSearch(_movie, true, true);
+            await SearchTitles();
+            var result = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
 
-            Mocker.GetMock<IConfigService>().SetupGet(s => s.SearchResultCacheLifetime).Returns(0);
-
-            Subject.CachedMovieSearch(_movie.Id, true, true).Should().BeNull();
+            result.Decisions.Should().BeEmpty();
+            Statuses(result).Should().Equal(IndexerSearchStatusType.Cached);
+            VerifyFetched(indexers[0], 1);
         }
 
         [Test]
-        public async Task should_not_cache_search_no_indexer_answered()
+        public async Task should_cache_query_answered_after_early_return()
         {
-            var indexer = GivenCachedIndexer(1, "A");
-            GivenSearchResultCache(new List<Mock<IIndexer>> { indexer }, new List<Mock<IIndexer>> { indexer });
-            indexer.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new Exception("Indexer failed"));
+            GivenQueryCache();
+            GivenEarlySearchReturn(0);
+            var indexers = GivenIndexers((0, "Fast", Quality.Bluray1080p, 10), (0, "Slow", Quality.Bluray2160p, 100));
+            var slow = new TaskCompletionSource<IList<ReleaseInfo>>();
+            Mock.Get(indexers[1]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).Returns(slow.Task);
 
-            await Subject.MovieSearch(_movie, false, false);
+            var decisions = await Subject.MovieSearch(_movie, true, false, true);
 
-            var cache = Mocker.Resolve<ICacheManager>().GetCache<SearchResultCacheEntry>(typeof(ReleaseSearchService), "searchResults");
-            cache.Find(_movie.Id.ToString()).Should().BeNull();
+            slow.SetResult(new List<ReleaseInfo> { new ReleaseInfo { IndexerId = 2, Title = "Slow", Guid = "Slow" } });
 
-            cache.Set(_movie.Id.ToString(), new SearchResultCacheEntry(new List<ReleaseInfo>(), new HashSet<int>(), DateTime.UtcNow), TimeSpan.FromMinutes(15));
+            Titles(decisions).Should().BeEquivalentTo("Fast");
 
-            Subject.CachedMovieSearch(_movie.Id, false, false).Should().BeNull();
-            ExceptionVerification.ExpectedErrors(1);
+            var result = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
+
+            Titles(result.Decisions).Should().BeEquivalentTo("Fast", "Slow");
+            Statuses(result).Should().Equal(IndexerSearchStatusType.Cached, IndexerSearchStatusType.Cached);
+            VerifyFetched(indexers[1], 1);
         }
 
-        [TestCase(10, true)]
-        [TestCase(20, false)]
-        public async Task should_expire_merged_search_results_with_the_original_search(int minutesAgo, bool cached)
+        [Test]
+        public async Task should_overwrite_cached_queries_on_search_again()
         {
-            var indexer = GivenCachedIndexer(1, "A");
-            GivenSearchResultCache(new List<Mock<IIndexer>> { indexer }, new List<Mock<IIndexer>> { indexer });
-            indexer.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).ThrowsAsync(new Exception("Indexer failed"));
+            GivenQueryCache();
+            var indexers = GivenIndexers((0, "A", Quality.SDTV, 0), (0, "B", Quality.SDTV, 0));
 
             await Subject.InteractiveMovieSearch(_movie.Id, false, false);
 
-            var searchedAt = DateTime.UtcNow.AddMinutes(-minutesAgo);
-            var searches = Mocker.Resolve<ICacheManager>().GetCache<InteractiveSearchEntry>(typeof(ReleaseSearchService), "interactiveSearches");
-            searches.Set(_movie.Id.ToString(), searches.Find(_movie.Id.ToString()) with { SearchedAt = searchedAt });
+            _releases["A2"] = (Quality.SDTV, 0);
+            Mock.Get(indexers[0]).Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>()))
+                .ReturnsAsync(new List<ReleaseInfo> { new ReleaseInfo { IndexerId = 1, Title = "A2", Guid = "A2" } });
 
-            indexer.Setup(s => s.Fetch(It.IsAny<MovieSearchCriteria>())).Returns(() => Task.FromResult<IList<ReleaseInfo>>(new List<ReleaseInfo> { new ReleaseInfo { IndexerId = 1, Title = "A", Guid = "A" } }));
+            var again = await Subject.InteractiveMovieSearch(_movie.Id, true, false);
 
-            await Subject.InteractiveMovieSearch(_movie.Id, false, true);
+            Titles(again.Decisions).Should().BeEquivalentTo("A2", "B");
+            Statuses(again).Should().Equal(IndexerSearchStatusType.Searched, IndexerSearchStatusType.Searched);
+            again.Status.CachedAt.Should().BeNull();
 
-            var result = Subject.CachedMovieSearch(_movie.Id, false, false);
+            var cached = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
 
-            if (cached)
-            {
-                result.SearchedAt.Should().Be(searchedAt);
-            }
-            else
-            {
-                result.Should().BeNull();
-            }
+            Titles(cached.Decisions).Should().BeEquivalentTo("A2", "B");
+            Statuses(cached).Should().Equal(IndexerSearchStatusType.Cached, IndexerSearchStatusType.Cached);
+            VerifyFetched(indexers[0], 2);
+            VerifyFetched(indexers[1], 2);
+        }
 
-            ExceptionVerification.ExpectedErrors(1);
+        [Test]
+        public async Task should_take_cached_queries_of_priority_groups_the_search_did_not_reach()
+        {
+            GivenQueryCache();
+            GivenEarlySearchReturn(0);
+            var indexers = GivenPriorityGroups((1, "Good", Quality.Bluray1080p, 10), (2, "Lower", Quality.SDTV, 0), (2, "Other", Quality.SDTV, 0));
+            GivenCachedQuery(2, "Lower", DateTime.UtcNow.AddMinutes(-1));
+
+            var result = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
+
+            Titles(result.Decisions).Should().BeEquivalentTo("Good", "Lower");
+            Statuses(result).Should().Equal(IndexerSearchStatusType.Searched, IndexerSearchStatusType.Cached, IndexerSearchStatusType.Skipped);
+            VerifyFetched(indexers[1], 0);
+            VerifyFetched(indexers[2], 0);
+        }
+
+        [Test]
+        public async Task should_send_only_queries_missing_from_cache_when_searching_remaining()
+        {
+            GivenQueryCache();
+            GivenEarlySearchReturn(0);
+            var indexers = GivenPriorityGroups((1, "Good", Quality.Bluray1080p, 10), (2, "Lower", Quality.SDTV, 0), (2, "Other", Quality.SDTV, 0));
+
+            var first = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
+
+            Statuses(first).Should().Equal(IndexerSearchStatusType.Searched, IndexerSearchStatusType.Skipped, IndexerSearchStatusType.Skipped);
+
+            // Another search answered the query in the meantime
+            GivenCachedQuery(2, "Lower", DateTime.UtcNow.AddMinutes(-1));
+
+            var remaining = await Subject.InteractiveMovieSearch(_movie.Id, false, true);
+
+            Titles(remaining.Decisions).Should().BeEquivalentTo("Good", "Lower", "Other");
+            Statuses(remaining).Should().Equal(IndexerSearchStatusType.Searched, IndexerSearchStatusType.Cached, IndexerSearchStatusType.Searched);
+            VerifyFetched(indexers[0], 1);
+            VerifyFetched(indexers[1], 0);
+            VerifyFetched(indexers[2], 1);
         }
     }
 }
