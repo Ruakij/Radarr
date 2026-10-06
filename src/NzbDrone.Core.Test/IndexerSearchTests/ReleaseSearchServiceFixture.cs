@@ -17,6 +17,7 @@ using NzbDrone.Core.DecisionEngine.Specifications;
 using NzbDrone.Core.Indexers;
 using NzbDrone.Core.IndexerSearch;
 using NzbDrone.Core.IndexerSearch.Definitions;
+using NzbDrone.Core.MediaFiles;
 using NzbDrone.Core.Movies;
 using NzbDrone.Core.Movies.Translations;
 using NzbDrone.Core.Parser.Model;
@@ -535,6 +536,52 @@ namespace NzbDrone.Core.Test.IndexerSearchTests
             Statuses(remaining).Should().Equal(IndexerSearchStatusType.Searched, IndexerSearchStatusType.Searched);
             Mock.Get(indexers[0]).Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Once());
             Mock.Get(indexers[1]).Verify(v => v.Fetch(It.IsAny<MovieSearchCriteria>()), Times.Once());
+        }
+
+        private void GivenMovieFile(Quality quality)
+        {
+            _movie.MovieFileId = 1;
+            _movie.MovieFile = new MovieFile { Id = 1, Quality = new QualityModel(quality) };
+
+            Mocker.GetMock<ICustomFormatCalculationService>()
+                  .Setup(s => s.ParseCustomFormat(It.IsAny<MovieFile>(), It.IsAny<Movie>()))
+                  .Returns(new List<CustomFormat> { _goodFormat });
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public async Task should_skip_lower_priority_groups_when_existing_file_meets_cutoff(bool requiredFromCache)
+        {
+            GivenQueryCache();
+            GivenEarlySearchReturn(0);
+            GivenRequiredPriority(5);
+            GivenMovieFile(Quality.Bluray1080p);
+            var indexers = GivenPriorityGroups((5, "Rejected", Quality.Bluray1080p, 10), (10, "Lower", Quality.Bluray2160p, 100));
+
+            if (requiredFromCache)
+            {
+                GivenCachedQuery(1, "Rejected", DateTime.UtcNow.AddMinutes(-5));
+            }
+
+            var result = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
+
+            VerifyFetched(indexers[0], requiredFromCache ? 0 : 1);
+            VerifyFetched(indexers[1], 0);
+            Statuses(result).Should().Equal(requiredFromCache ? IndexerSearchStatusType.Cached : IndexerSearchStatusType.Searched, IndexerSearchStatusType.Skipped);
+        }
+
+        [Test]
+        public async Task should_search_lower_priority_groups_when_existing_file_does_not_meet_cutoff()
+        {
+            GivenEarlySearchReturn(0);
+            GivenRequiredPriority(5);
+            GivenMovieFile(Quality.SDTV);
+            var indexers = GivenPriorityGroups((5, "Rejected", Quality.Bluray1080p, 10), (10, "Lower", Quality.Bluray2160p, 100));
+
+            var result = await Subject.InteractiveMovieSearch(_movie.Id, false, false);
+
+            VerifyFetched(indexers[1], 1);
+            Statuses(result).Should().Equal(IndexerSearchStatusType.Searched, IndexerSearchStatusType.Searched);
         }
 
         [Test]
