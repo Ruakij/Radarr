@@ -49,8 +49,7 @@ namespace NzbDrone.Core.IndexerSearch
                 .Where(m => (m.Monitored && m.IsAvailable()) || userInvokedSearch)
                 .ToList();
 
-            // A search started by hand asks for fresh results, its results still refresh the cache
-            SearchForBulkMovies(movies, userInvokedSearch, !userInvokedSearch, message.FallbackToIndexers).GetAwaiter().GetResult();
+            SearchForBulkMovies(movies, userInvokedSearch).GetAwaiter().GetResult();
         }
 
         public void Execute(MissingMoviesSearchCommand message)
@@ -70,7 +69,7 @@ namespace NzbDrone.Core.IndexerSearch
             var queue = _queueService.GetQueue().Where(q => q.Movie != null).Select(q => q.Movie.Id);
             var missing = movies.Where(e => !queue.Contains(e.Id)).ToList();
 
-            SearchForBulkMovies(missing, message.Trigger == CommandTrigger.Manual, true).GetAwaiter().GetResult();
+            SearchForBulkMovies(missing, message.Trigger == CommandTrigger.Manual).GetAwaiter().GetResult();
         }
 
         public void Execute(CutoffUnmetMoviesSearchCommand message)
@@ -90,87 +89,27 @@ namespace NzbDrone.Core.IndexerSearch
             var queue = _queueService.GetQueue().Where(q => q.Movie != null).Select(q => q.Movie.Id);
             var missing = movies.Where(e => !queue.Contains(e.Id)).ToList();
 
-            SearchForBulkMovies(missing, message.Trigger == CommandTrigger.Manual, true).GetAwaiter().GetResult();
+            SearchForBulkMovies(missing, message.Trigger == CommandTrigger.Manual).GetAwaiter().GetResult();
         }
 
-        private async Task SearchForBulkMovies(List<Movie> movies, bool userInvokedSearch, bool useCache, bool fallbackToIndexers = false)
+        private async Task SearchForBulkMovies(List<Movie> movies, bool userInvokedSearch)
         {
             _logger.ProgressInfo("Performing search for {0} movies", movies.Count);
             var movieIds = movies.GroupBy(e => e.Id).OrderBy(g => g.Min(m => m.LastSearchTime ?? DateTime.MinValue)).Select(g => g.Key).ToList();
 
-            // Cached results are looked up ahead with the searches, a search runs ahead only for a movie not fully cached
             var downloadedCount = await SearchAndProcess(movieIds,
                 _configService.SearchConcurrency,
-                async movieId =>
-                {
-                    var cached = useCache ? FindCachedSearch(movieId, userInvokedSearch) : null;
-
-                    return (Cached: cached, Decisions: cached == null ? await SearchIndexers(movieId, userInvokedSearch, useCache) : null);
-                },
-                async (movieId, result) =>
-                {
-                    var grabbedCount = 0;
-                    var decisions = result.Decisions;
-
-                    if (result.Cached != null)
-                    {
-                        var cachedResult = await ProcessCachedSearch(movieId, result.Cached);
-
-                        if (cachedResult != null)
-                        {
-                            grabbedCount += cachedResult.Grabbed.Count;
-
-                            if (!fallbackToIndexers || cachedResult.Grabbed.Any() || cachedResult.Pending.Any())
-                            {
-                                return grabbedCount;
-                            }
-
-                            _logger.Debug("No cached search result for movie [{0}] is acceptable anymore, searching indexers", movieId);
-                        }
-
-                        // The cache would answer with the same results
-                        decisions = await SearchIndexers(movieId, userInvokedSearch, false);
-                    }
-
-                    return decisions == null ? grabbedCount : grabbedCount + (await _processDownloadDecisions.ProcessDecisions(decisions)).Grabbed.Count;
-                });
+                movieId => SearchIndexers(movieId, userInvokedSearch),
+                async (movieId, decisions) => decisions == null ? 0 : (await _processDownloadDecisions.ProcessDecisions(decisions)).Grabbed.Count);
 
             _logger.ProgressInfo("Completed search for {0} movies. {1} reports downloaded.", movies.Count, downloadedCount);
         }
 
-        private CachedSearchResult FindCachedSearch(int movieId, bool userInvokedSearch)
+        private async Task<List<DownloadDecision>> SearchIndexers(int movieId, bool userInvokedSearch)
         {
             try
             {
-                return _releaseSearchService.CachedMovieSearch(movieId, userInvokedSearch, false);
-            }
-            catch (Exception ex)
-            {
-                _logger.Warn(ex, "Unable to use cached search results for movie: [{0}], searching indexers", movieId);
-            }
-
-            return null;
-        }
-
-        private async Task<ProcessedDecisions> ProcessCachedSearch(int movieId, CachedSearchResult cached)
-        {
-            try
-            {
-                return await _processDownloadDecisions.ProcessDecisions(cached.Decisions);
-            }
-            catch (Exception ex)
-            {
-                _logger.Warn(ex, "Unable to use cached search results for movie: [{0}], searching indexers", movieId);
-            }
-
-            return null;
-        }
-
-        private async Task<List<DownloadDecision>> SearchIndexers(int movieId, bool userInvokedSearch, bool useCache)
-        {
-            try
-            {
-                return await _releaseSearchService.MovieSearch(movieId, userInvokedSearch, false, useCache);
+                return await _releaseSearchService.MovieSearch(movieId, userInvokedSearch, false);
             }
             catch (Exception ex)
             {

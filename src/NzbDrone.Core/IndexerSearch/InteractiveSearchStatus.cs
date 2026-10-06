@@ -5,8 +5,6 @@ using NzbDrone.Core.Parser.Model;
 
 namespace NzbDrone.Core.IndexerSearch
 {
-    public record CachedSearchResult(List<DownloadDecision> Decisions, DateTime SearchedAt);
-
     // The answer of one indexer to one query, all pages included
     public record IndexerQueryResult(List<ReleaseInfo> Releases, DateTime FetchedAt);
 
